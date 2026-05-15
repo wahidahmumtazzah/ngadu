@@ -50,7 +50,6 @@ Isi `.env`:
 ```env
 PORT=5000
 CLIENT_URL=http://localhost:3000
-JWT_SECRET=ganti_dengan_secret_yang_aman
 DB_HOST=localhost
 DB_PORT=3306
 DB_USER=root
@@ -59,8 +58,16 @@ DB_NAME=ngadu_db
 NEXT_PUBLIC_API_URL=http://localhost:5000/api
 NEXT_PUBLIC_UPLOADS_URL=http://localhost:5000
 NEXT_PUBLIC_APP_URL=http://localhost:3000
-RESEND_API_KEY=
-EMAIL_FROM=no-reply@example.com
+NEXT_PUBLIC_FIREBASE_API_KEY=
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=
+NEXT_PUBLIC_FIREBASE_APP_ID=
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
+FIREBASE_PROJECT_ID=
+FIREBASE_CLIENT_EMAIL=
+FIREBASE_PRIVATE_KEY=
+SUPER_ADMIN_EMAIL=owner@ngadu.local
+SUPER_ADMIN_PASSWORD=owner123
 ```
 
 ## Menjalankan
@@ -98,15 +105,15 @@ Jika environment Windows Anda bermasalah dengan `cmd.exe`, script `npm run dev`
 di project ini sudah memakai launcher Node langsung, jadi tidak bergantung pada
 `concurrently`.
 
-## Akun Admin Default
+## Firebase Authentication
 
-- Email: `admin@ngadu.local`
-- Password: `admin123`
+- Login, registrasi email/password, verifikasi email, reset password, dan session handling sekarang memakai Firebase Authentication.
+- Backend memverifikasi Firebase ID token dengan Firebase Admin SDK.
+- Tetap ada database user internal untuk role, organisasi, dan scoping multi-tenant.
 
 ## Catatan
 
 - Foto laporan disimpan di folder `uploads/`.
 - Jika laporan dikirim sebagai anonim, admin hanya melihat label `Anonim`.
-- User bisa login untuk melihat dashboard pribadi.
-- Jika `RESEND_API_KEY` dan `EMAIL_FROM` diisi, email verifikasi organisasi akan dikirim sungguhan.
-- Jika belum diisi, mode development tetap mengembalikan link verifikasi agar flow bisa dites manual.
+- User bisa login untuk melihat dashboard pribadi setelah email Firebase diverifikasi dan instansinya aktif.
+- Verifikasi email organisasi sekarang mengikuti email verification Firebase pada akun admin organisasi.

@@ -1,7 +1,7 @@
 "use client";
 
 import { apiFetch, getUser } from "@/lib/api";
-import { getPlatformConfig } from "@/lib/platform-config";
+import { getPlatformConfig, isSensitiveCategoryForType } from "@/lib/platform-config";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
@@ -74,6 +74,10 @@ export default function ReportFormPage() {
   }, [selectedOrganization]);
 
   const platformConfig = useMemo(() => getPlatformConfig(selectedOrganizationType), [selectedOrganizationType]);
+  const isSensitiveCategory = useMemo(
+    () => isSensitiveCategoryForType(selectedOrganizationType, selectedCategory),
+    [selectedCategory, selectedOrganizationType]
+  );
   const emergencyOptions = useMemo(
     () =>
       platformConfig.emergencyGroups.flatMap((group) =>
@@ -84,6 +88,12 @@ export default function ReportFormPage() {
       ),
     [platformConfig]
   );
+
+  useEffect(() => {
+    if (isSensitiveCategory) {
+      setIsAnonymous(true);
+    }
+  }, [isSensitiveCategory]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -262,6 +272,12 @@ export default function ReportFormPage() {
                     </select>
                   </label>
 
+                  {isSensitiveCategory ? (
+                    <div className="sm:col-span-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-4 text-sm leading-6 text-red-700">
+                      Kategori ini diperlakukan sebagai laporan sensitif. Mode anonim diaktifkan otomatis agar identitas pelapor lebih aman.
+                    </div>
+                  ) : null}
+
                   <label className="sm:col-span-2">
                     <span className="mb-2 block text-sm font-semibold text-ink">Judul laporan</span>
                     <input name="title" className="input" placeholder={`Contoh: ${platformConfig.menu[0]}`} />
@@ -322,10 +338,13 @@ export default function ReportFormPage() {
                 <input
                   type="checkbox"
                   checked={isAnonymous}
+                  disabled={isSensitiveCategory}
                   onChange={(event) => setIsAnonymous(event.target.checked)}
                   className="size-4 rounded border-ink/20"
                 />
-                <span className="text-sm text-ink/70">Kirim sebagai anonim</span>
+                <span className="text-sm text-ink/70">
+                  {isSensitiveCategory ? "Anonim wajib untuk kategori sensitif ini" : "Kirim sebagai anonim"}
+                </span>
               </label>
             </div>
 

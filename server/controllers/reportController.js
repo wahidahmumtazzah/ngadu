@@ -1,7 +1,7 @@
 import { pool } from "../config/db.js";
 import { randomUUID } from "node:crypto";
 import { getCategoryByOrganizationType } from "../services/organizationService.js";
-import { getPlatformConfig } from "../../lib/platform-config.js";
+import { getPlatformConfig, isSensitiveCategoryForType } from "../../lib/platform-config.js";
 
 const emergencyCategoryMap = {
   perkelahian: "bullying",
@@ -98,6 +98,17 @@ async function createInternalComment(connection, { reportId, userId = null, comm
   );
 }
 
+async function createReply(connection, { reportId, senderId = null, senderRole = null, message, isInternal = false }) {
+  const trimmedMessage = message?.trim();
+  if (!trimmedMessage) return;
+
+  await connection.query(
+    `INSERT INTO report_replies (report_id, sender_id, sender_role, message, is_internal)
+     VALUES (?, ?, ?, ?, ?)`,
+    [reportId, senderId, senderRole, trimmedMessage, isInternal ? 1 : 0]
+  );
+}
+
 export async function createReport(req, res) {
   try {
     const {
@@ -158,6 +169,10 @@ export async function createReport(req, res) {
     if (isAnonymous === undefined && userId) {
       const [users] = await pool.query("SELECT default_anonymous FROM users WHERE id = ?", [userId]);
       anonymous = Boolean(users[0]?.default_anonymous);
+    }
+
+    if (isSensitiveCategoryForType(organization.type, resolvedCategory)) {
+      anonymous = true;
     }
 
     const resolvedDangerLevel = emergency ? dangerLevel || "tinggi" : null;
@@ -291,6 +306,7 @@ export async function getPublicStats(_req, res) {
         COUNT(*) AS total,
         SUM(status = 'terkirim') AS terkirim,
         SUM(status = 'diproses') AS diproses,
+        SUM(status = 'menunggu_korban') AS menunggu_korban,
         SUM(status = 'selesai') AS selesai
       FROM reports`
     );
@@ -482,9 +498,115 @@ export async function getReportActivity(req, res) {
       [reportId, req.user?.role || "user"]
     );
 
-    res.json({ statusLogs, comments });
+    const [replies] = await pool.query(
+      `SELECT
+        r.id,
+        r.report_id,
+        r.message,
+        r.is_internal,
+        r.created_at,
+        r.sender_role,
+        u.id AS sender_id,
+        COALESCE(u.name, 'Sistem') AS sender_name,
+        u.role AS sender_system_role
+       FROM report_replies r
+       LEFT JOIN users u ON r.sender_id = u.id
+       WHERE r.report_id = ?
+         AND (? = 'admin' OR r.is_internal = 0)
+       ORDER BY r.created_at DESC, r.id DESC`,
+      [reportId, req.user?.role || "user"]
+    );
+
+    const timeline = [
+      ...statusLogs.map((item) => ({
+        id: `status-${item.id}`,
+        type: "status",
+        created_at: item.created_at,
+        actor_name: item.changed_by_name,
+        actor_role: item.changed_by_role,
+        content: item.note,
+        from_status: item.from_status,
+        to_status: item.to_status
+      })),
+      ...replies.map((item) => ({
+        id: `reply-${item.id}`,
+        type: "reply",
+        created_at: item.created_at,
+        actor_name: item.sender_name,
+        actor_role: item.sender_system_role || item.sender_role,
+        content: item.message,
+        is_internal: item.is_internal
+      })),
+      ...comments.map((item) => ({
+        id: `comment-${item.id}`,
+        type: "comment",
+        created_at: item.created_at,
+        actor_name: item.user_name,
+        actor_role: item.user_role,
+        content: item.comment,
+        is_internal: item.is_internal
+      }))
+    ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+    res.json({ statusLogs, comments, replies, timeline });
   } catch (error) {
     res.status(500).json({ message: "Gagal mengambil aktivitas laporan.", error: error.message });
+  }
+}
+
+export async function createReportReply(req, res) {
+  try {
+    const reportId = Number(req.params.id);
+    const { message, isInternal } = req.body;
+    const accessibleReport = await getAccessibleReport(reportId, req.user);
+
+    if (accessibleReport === null) {
+      return res.status(404).json({ message: "Laporan tidak ditemukan." });
+    }
+
+    if (accessibleReport === false) {
+      return res.status(403).json({ message: "Anda tidak memiliki akses ke laporan ini." });
+    }
+
+    if (!message || !String(message).trim()) {
+      return res.status(400).json({ message: "Pesan balasan wajib diisi." });
+    }
+
+    const internalReply = req.user?.role === "admin" ? isInternal === true || isInternal === "true" : false;
+    const connection = await pool.getConnection();
+
+    try {
+      await connection.beginTransaction();
+
+      await createReply(connection, {
+        reportId,
+        senderId: req.user?.id || null,
+        senderRole: req.user?.role || null,
+        message: String(message),
+        isInternal: internalReply
+      });
+
+      if (!internalReply && accessibleReport.user_id && accessibleReport.user_id !== req.user?.id) {
+        await createNotification(connection, {
+          userId: accessibleReport.user_id,
+          reportId,
+          type: "report_reply",
+          title: "Ada balasan baru untuk laporan Anda",
+          message: "Admin atau petugas telah mengirim balasan pada laporan Anda."
+        });
+      }
+
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+
+    res.status(201).json({ message: "Balasan berhasil dikirim." });
+  } catch (error) {
+    res.status(500).json({ message: "Gagal mengirim balasan laporan.", error: error.message });
   }
 }
 
@@ -492,7 +614,7 @@ export async function updateReportStatus(req, res) {
   try {
     const { id } = req.params;
     const { status, adminNote, assignedTo } = req.body;
-    const allowed = ["terkirim", "diproses", "selesai", "ditolak"];
+    const allowed = ["terkirim", "diproses", "menunggu_korban", "selesai", "ditolak"];
 
     if (!allowed.includes(status)) {
       return res.status(400).json({ message: "Status tidak valid." });
@@ -615,6 +737,7 @@ export async function getAdminStats(req, res) {
         SUM(DATE(created_at) = CURDATE()) AS hari_ini,
         SUM(status = 'terkirim') AS terkirim,
         SUM(status = 'diproses') AS diproses,
+        SUM(status = 'menunggu_korban') AS menunggu_korban,
         SUM(status = 'selesai') AS selesai,
         SUM(status = 'ditolak') AS ditolak,
         SUM(urgency = 'tinggi') AS urgensi_tinggi,

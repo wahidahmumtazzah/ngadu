@@ -16,7 +16,6 @@ type ProfileUser = {
 export default function ProfilePage() {
   const [user, setUser] = useState<ProfileUser | null>(null);
   const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
   const [defaultAnonymous, setDefaultAnonymous] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -24,7 +23,6 @@ export default function ProfilePage() {
   function applyUser(nextUser: ProfileUser | null) {
     setUser(nextUser);
     setName(nextUser?.name || "");
-    setEmail(nextUser?.email || "");
     setDefaultAnonymous(Boolean(nextUser?.defaultAnonymous ?? true));
   }
 
@@ -51,7 +49,6 @@ export default function ProfilePage() {
         method: "PATCH",
         body: JSON.stringify({
           name,
-          email,
           defaultAnonymous
         })
       });
@@ -92,8 +89,8 @@ export default function ProfilePage() {
               <span className="text-xs uppercase tracking-[0.18em] text-ink/45">Email</span>
               <input
                 type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
+                value={user?.email || ""}
+                readOnly
                 className="input mt-4"
                 placeholder="nama@email.com"
               />
@@ -149,7 +146,7 @@ export default function ProfilePage() {
           <div className="card p-8">
             <h2 className="text-2xl font-black text-ink">Simpan Perubahan</h2>
             <p className="mt-3 text-sm leading-6 text-ink/70">
-              Tombol ini akan menyimpan nama, email, dan pengaturan anonim default sekaligus.
+              Tombol ini akan menyimpan nama dan pengaturan anonim default. Email dikelola oleh Firebase Authentication.
             </p>
 
             <button onClick={handleSaveProfile} disabled={saving} className="btn-primary mt-6 disabled:opacity-60">

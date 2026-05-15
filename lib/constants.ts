@@ -15,7 +15,7 @@ export const contohFasilitas = [
   "keamanan lingkungan"
 ];
 
-export const statusLaporan = ["terkirim", "diproses", "selesai", "ditolak"];
+export const statusLaporan = ["terkirim", "diproses", "menunggu_korban", "selesai", "ditolak"];
 export const tingkatUrgensi = ["rendah", "sedang", "tinggi"];
 export const tingkatBahayaDarurat = ["sedang", "tinggi", "kritis"];
 export const rolePengguna = ["admin", "petugas", "user"];

@@ -1,0 +1,96 @@
+[debug] [2026-05-15T11:07:14.601Z] ----------------------------------------------------------------------
+[debug] [2026-05-15T11:07:14.604Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\DELL-7480\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js login
+[debug] [2026-05-15T11:07:14.605Z] CLI Version:   15.18.0
+[debug] [2026-05-15T11:07:14.605Z] Platform:      win32
+[debug] [2026-05-15T11:07:14.605Z] Node Version:  v22.19.0
+[debug] [2026-05-15T11:07:14.605Z] Time:          Fri May 15 2026 18:07:14 GMT+0700 (Western Indonesia Time)
+[debug] [2026-05-15T11:07:14.606Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-05-15T11:07:14.608Z] >>> [apiv2][query] GET https://firebase-public.firebaseio.com/cli.json [none]
+[info] i  The Firebase CLI’s MCP server feature can optionally make use of Gemini in Firebase. Learn more about Gemini in Firebase and how it uses your data: https://firebase.google.com/docs/gemini-in-firebase#how-gemini-in-firebase-uses-your-data 
+[debug] [2026-05-15T11:07:15.358Z] <<< [apiv2][status] GET https://firebase-public.firebaseio.com/cli.json 200
+[debug] [2026-05-15T11:07:15.359Z] <<< [apiv2][body] GET https://firebase-public.firebaseio.com/cli.json {"cloudBuildErrorAfter":1594252800000,"cloudBuildWarnAfter":1590019200000,"defaultNode10After":1594252800000,"minVersion":"3.0.5","node8DeploysDisabledAfter":1613390400000,"node8RuntimeDisabledAfter":1615809600000,"node8WarnAfter":1600128000000}
+[info] 
+[info] i  Firebase optionally collects CLI and Emulator Suite usage and error reporting information to help improve our products. Data is collected in accordance with Google's privacy policy (https://policies.google.com/privacy) and is not used to identify you. 
+[info] 
+[info] i  To change your preferences at any time, run `firebase logout` and `firebase login` again. 
+[info] 
+[info] Visit this URL on this device to log in:
+[info] https://accounts.google.com/o/oauth2/auth?client_id=563584335869-fgrhgmd47bqnekij5i8b5pr03ho849e6.apps.googleusercontent.com&scope=email%20openid%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcloudplatformprojects.readonly%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Ffirebase%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcloud-platform&response_type=code&state=69460100&redirect_uri=http%3A%2F%2Flocalhost%3A9005
+[info] 
+[info] Waiting for authentication...
+[debug] [2026-05-15T11:07:22.511Z] Error: spawn cmd ENOENT
+    at ChildProcess._handle.onexit (node:internal/child_process:285:19)
+    at onErrorNT (node:internal/child_process:483:16)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+[error] 
+[error] Error: An unexpected error has occurred.
+[debug] [2026-05-15T11:08:00.554Z] ----------------------------------------------------------------------
+[debug] [2026-05-15T11:08:00.558Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\DELL-7480\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js login
+[debug] [2026-05-15T11:08:00.559Z] CLI Version:   15.18.0
+[debug] [2026-05-15T11:08:00.559Z] Platform:      win32
+[debug] [2026-05-15T11:08:00.559Z] Node Version:  v22.19.0
+[debug] [2026-05-15T11:08:00.560Z] Time:          Fri May 15 2026 18:08:00 GMT+0700 (Western Indonesia Time)
+[debug] [2026-05-15T11:08:00.560Z] ----------------------------------------------------------------------
+[debug] 
+[info] i  The Firebase CLI’s MCP server feature can optionally make use of Gemini in Firebase. Learn more about Gemini in Firebase and how it uses your data: https://firebase.google.com/docs/gemini-in-firebase#how-gemini-in-firebase-uses-your-data 
+[debug] [2026-05-15T11:08:25.948Z] ExitPromptError: User force closed the prompt with SIGINT
+    at Interface.sigint (C:\Users\DELL-7480\AppData\Roaming\npm\node_modules\firebase-tools\node_modules\@inquirer\core\dist\commonjs\lib\create-prompt.js:101:37)
+    at Interface.emit (node:events:519:28)
+    at [_ttyWrite] [as _ttyWrite] (node:internal/readline/interface:1132:18)
+    at ReadStream.onkeypress (node:internal/readline/interface:271:20)
+    at ReadStream.emit (node:events:531:35)
+    at emitKeys (node:internal/readline/utils:370:14)
+    at emitKeys.next (<anonymous>)
+    at ReadStream.onData (node:internal/readline/emitKeypressEvents:64:36)
+    at ReadStream.emit (node:events:519:28)
+    at addChunk (node:internal/streams/readable:561:12)
+[error] 
+[error] Error: An unexpected error has occurred.
+[debug] [2026-05-15T11:08:30.452Z] ----------------------------------------------------------------------
+[debug] [2026-05-15T11:08:30.455Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\DELL-7480\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js login --no-localhost
+[debug] [2026-05-15T11:08:30.456Z] CLI Version:   15.18.0
+[debug] [2026-05-15T11:08:30.456Z] Platform:      win32
+[debug] [2026-05-15T11:08:30.456Z] Node Version:  v22.19.0
+[debug] [2026-05-15T11:08:30.456Z] Time:          Fri May 15 2026 18:08:30 GMT+0700 (Western Indonesia Time)
+[debug] [2026-05-15T11:08:30.456Z] ----------------------------------------------------------------------
+[debug] 
+[info] i  The Firebase CLI’s MCP server feature can optionally make use of Gemini in Firebase. Learn more about Gemini in Firebase and how it uses your data: https://firebase.google.com/docs/gemini-in-firebase#how-gemini-in-firebase-uses-your-data 
+[info] 
+[info] i  Firebase optionally collects CLI and Emulator Suite usage and error reporting information to help improve our products. Data is collected in accordance with Google's privacy policy (https://policies.google.com/privacy) and is not used to identify you. 
+[info] 
+[info] i  To change your preferences at any time, run `firebase logout` and `firebase login` again. 
+[debug] [2026-05-15T11:09:20.341Z] >>> [apiv2][query] POST https://auth.firebase.tools/attest [none]
+[debug] [2026-05-15T11:09:20.341Z] >>> [apiv2][body] POST https://auth.firebase.tools/attest {"session_id":"af755bb2-b5db-44a7-8588-bd2d330e27b8"}
+[debug] [2026-05-15T11:09:21.064Z] <<< [apiv2][status] POST https://auth.firebase.tools/attest 200
+[debug] [2026-05-15T11:09:21.065Z] <<< [apiv2][body] POST https://auth.firebase.tools/attest {"token":"sm3yzzhL-zZHg0V-rgxIN9eQIo4_pJ4eUFFu9atITLY"}
+[info] 
+[info] To sign in to the Firebase CLI:
+[info] 
+[info] 1. Take note of your session ID:
+[info] 
+[info]    AF755
+[info] 
+[info] 2. Visit the URL below on any device and follow the instructions to get your code:
+[info] 
+[info]    https://auth.firebase.tools/login?code_challenge=TvvDnCJZ14p6LWC2C5veUeTT9roo1UfFKrL6VixUCGc&session=af755bb2-b5db-44a7-8588-bd2d330e27b8&attest=sm3yzzhL-zZHg0V-rgxIN9eQIo4_pJ4eUFFu9atITLY
+[info] 
+[info] 3. Paste or enter the authorization code below once you have it:
+[info] 
+[debug] [2026-05-15T11:10:19.641Z] >>> [apiv2][query] POST https://accounts.google.com/o/oauth2/token [none]
+[debug] [2026-05-15T11:10:19.641Z] >>> [apiv2][body] POST https://accounts.google.com/o/oauth2/token [omitted]
+[debug] [2026-05-15T11:10:19.881Z] <<< [apiv2][status] POST https://accounts.google.com/o/oauth2/token 400
+[debug] [2026-05-15T11:10:19.881Z] <<< [apiv2][body] POST https://accounts.google.com/o/oauth2/token [omitted]
+[debug] [2026-05-15T11:10:19.885Z] Token Fetch Error: FirebaseError: Request to https://accounts.google.com/o/oauth2/token had HTTP Error: 400, invalid_grant
+    at responseToError (C:\Users\DELL-7480\AppData\Roaming\npm\node_modules\firebase-tools\lib\responseToError.js:53:12)
+    at RetryOperation._fn (C:\Users\DELL-7480\AppData\Roaming\npm\node_modules\firebase-tools\lib\apiv2.js:333:77)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[error] Authentication Error: Your credentials are no longer valid. Please run firebase login --reauth
+
+For CI servers and headless environments, generate a new token with firebase login:ci
+[debug] [2026-05-15T11:10:24.904Z] Error: Timed out.
+    at Timeout._onTimeout (C:\Users\DELL-7480\AppData\Roaming\npm\node_modules\firebase-tools\lib\utils.js:309:49)
+    at listOnTimeout (node:internal/timers:588:17)
+    at process.processTimers (node:internal/timers:523:7)
+[error] 
+[error] Error: An unexpected error has occurred.

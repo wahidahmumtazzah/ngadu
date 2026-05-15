@@ -30,7 +30,7 @@ const registerRateLimit = createRateLimiter({
   message: "Batas pendaftaran akun tercapai untuk hari ini."
 });
 
-router.post("/register", registerRateLimit, register);
+router.post("/register", authenticate, requireAuth, registerRateLimit, register);
 router.post("/login", loginRateLimit, login);
 router.get("/me", authenticate, requireAuth, requireActiveOrganization, me);
 router.patch("/me", authenticate, requireAuth, requireActiveOrganization, updateMe);

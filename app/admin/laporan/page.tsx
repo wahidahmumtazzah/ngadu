@@ -39,6 +39,18 @@ type ReportDraft = {
   assignedTo: string;
 };
 
+type ActivityItem = {
+  id: string;
+  type: "status" | "reply" | "comment";
+  created_at: string;
+  actor_name: string;
+  actor_role?: string | null;
+  content?: string | null;
+  from_status?: string | null;
+  to_status?: string | null;
+  is_internal?: number | boolean;
+};
+
 type FilterState = {
   category: string;
   status: string;
@@ -78,11 +90,16 @@ function getCategoryTone(category: string) {
     keamanan: "bg-emerald-100 text-emerald-700",
     kebersihan: "bg-cyan-100 text-cyan-700",
     bullying: "bg-violet-100 text-violet-700",
+    pelecehan: "bg-red-100 text-red-700",
     pelayanan: "bg-amber-100 text-amber-700",
     lingkungan: "bg-teal-100 text-teal-700"
   };
 
   return tones[category] || "bg-ink/5 text-ink/70";
+}
+
+function isSensitiveCategory(category: string) {
+  return category.trim().toLowerCase() === "pelecehan";
 }
 
 export default function AdminReportsPage() {
@@ -95,6 +112,10 @@ export default function AdminReportsPage() {
   const [savingReportId, setSavingReportId] = useState<number | null>(null);
   const [recentlySavedReportId, setRecentlySavedReportId] = useState<number | null>(null);
   const [hiddenSavedReportIds, setHiddenSavedReportIds] = useState<number[]>([]);
+  const [activityByReport, setActivityByReport] = useState<Record<number, ActivityItem[]>>({});
+  const [replyDrafts, setReplyDrafts] = useState<Record<number, string>>({});
+  const [loadingActivityId, setLoadingActivityId] = useState<number | null>(null);
+  const [sendingReplyId, setSendingReplyId] = useState<number | null>(null);
   const [filters, setFilters] = useState<FilterState>({
     category: "",
     status: "",
@@ -176,6 +197,40 @@ export default function AdminReportsPage() {
         ...patch
       }
     }));
+  }
+
+  async function loadActivity(reportId: number) {
+    try {
+      setLoadingActivityId(reportId);
+      const data = await apiFetch(`/reports/${reportId}/activity`);
+      setActivityByReport((current) => ({
+        ...current,
+        [reportId]: data.timeline || []
+      }));
+    } finally {
+      setLoadingActivityId(null);
+    }
+  }
+
+  async function sendReply(reportId: number) {
+    const message = (replyDrafts[reportId] || "").trim();
+    if (!message) return;
+
+    try {
+      setSendingReplyId(reportId);
+      setActionMessage("");
+      await apiFetch(`/reports/${reportId}/replies`, {
+        method: "POST",
+        body: JSON.stringify({ message })
+      });
+      setReplyDrafts((current) => ({ ...current, [reportId]: "" }));
+      await loadActivity(reportId);
+      setActionMessage(`Balasan untuk laporan #LP-${reportId} berhasil dikirim.`);
+    } catch (err) {
+      setActionMessage(err instanceof Error ? err.message : "Gagal mengirim balasan.");
+    } finally {
+      setSendingReplyId(null);
+    }
   }
 
   async function saveReport(reportId: number) {
@@ -376,6 +431,9 @@ export default function AdminReportsPage() {
                       <td className="px-3 py-4">
                         <div className="flex flex-wrap gap-2">
                           <span className={`badge capitalize ${getCategoryTone(report.category)}`}>{report.category}</span>
+                          {isSensitiveCategory(report.category) ? (
+                            <span className="badge bg-red-100 text-red-700">Sensitif</span>
+                          ) : null}
                           {report.is_emergency ? <span className="badge bg-red-500 text-white">SOS</span> : null}
                         </div>
                       </td>
@@ -471,13 +529,16 @@ export default function AdminReportsPage() {
                 >
                   <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
                     <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        {report.is_emergency ? <span className="badge bg-red-500 text-white">SOS</span> : null}
-                        <span className={`badge capitalize ${getCategoryTone(report.category)}`}>{report.category}</span>
-                        <span className="badge bg-brand-50 text-brand-700 capitalize">{report.urgency}</span>
-                        <StatusBadge status={report.status} />
-                        {recentlySavedReportId === report.id ? <span className="badge bg-emerald-100 text-emerald-700">Tersimpan</span> : null}
-                      </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {report.is_emergency ? <span className="badge bg-red-500 text-white">SOS</span> : null}
+                          <span className={`badge capitalize ${getCategoryTone(report.category)}`}>{report.category}</span>
+                          {isSensitiveCategory(report.category) ? (
+                            <span className="badge bg-red-100 text-red-700">Sensitif</span>
+                          ) : null}
+                          <span className="badge bg-brand-50 text-brand-700 capitalize">{report.urgency}</span>
+                          <StatusBadge status={report.status} />
+                          {recentlySavedReportId === report.id ? <span className="badge bg-emerald-100 text-emerald-700">Tersimpan</span> : null}
+                        </div>
 
                       <h3 className="mt-4 text-xl font-bold text-ink">{report.location}</h3>
                       <div className="mt-3 grid gap-2 text-sm text-ink/60 md:grid-cols-2">
@@ -487,6 +548,12 @@ export default function AdminReportsPage() {
                         <p>Update: {formatDateTime(report.updated_at)}</p>
                       </div>
                       <p className="mt-4 text-sm leading-6 text-ink/70">{report.description}</p>
+
+                      {isSensitiveCategory(report.category) ? (
+                        <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700">
+                          Laporan sensitif. Identitas pelapor disamarkan dan tindak lanjut sebaiknya memakai balasan yang hati-hati.
+                        </div>
+                      ) : null}
 
                       <div className="mt-5 grid gap-3 md:grid-cols-2">
                         <select className="input" value={draft?.status || report.status} onChange={(event) => setDraft(report.id, { status: event.target.value })}>
@@ -512,6 +579,90 @@ export default function AdminReportsPage() {
                           value={draft?.adminNote || ""}
                           onChange={(event) => setDraft(report.id, { adminNote: event.target.value })}
                         />
+                      </div>
+
+                      <div className="mt-5 rounded-3xl border border-ink/8 bg-sand p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-ink">Balasan Admin</p>
+                            <p className="mt-1 text-xs text-ink/55">Gunakan untuk minta bukti tambahan, mengarahkan korban, atau memberi update.</p>
+                          </div>
+                          <button
+                            onClick={() => loadActivity(report.id)}
+                            className="rounded-2xl border border-ink/10 bg-white px-3 py-2 text-xs font-semibold text-ink"
+                          >
+                            {loadingActivityId === report.id ? "Memuat..." : "Lihat Aktivitas"}
+                          </button>
+                        </div>
+
+                        <div className="mt-4 grid gap-3">
+                          <textarea
+                            className="input min-h-[100px]"
+                            placeholder="Contoh: Silakan datang ke ruang BK besok jam 09.00 atau kirim bukti tambahan melalui admin."
+                            value={replyDrafts[report.id] || ""}
+                            onChange={(event) =>
+                              setReplyDrafts((current) => ({
+                                ...current,
+                                [report.id]: event.target.value
+                              }))
+                            }
+                          />
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              onClick={() => sendReply(report.id)}
+                              disabled={sendingReplyId === report.id}
+                              className="rounded-2xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+                            >
+                              {sendingReplyId === report.id ? "Mengirim..." : "Kirim Balasan"}
+                            </button>
+                            <button
+                              onClick={() =>
+                                setReplyDrafts((current) => ({
+                                  ...current,
+                                  [report.id]: "Silakan kirim bukti tambahan agar laporan bisa kami lanjutkan."
+                                }))
+                              }
+                              className="rounded-2xl border border-ink/10 bg-white px-4 py-2.5 text-sm font-semibold text-ink"
+                            >
+                              Minta Bukti
+                            </button>
+                            <button
+                              onClick={() =>
+                                setReplyDrafts((current) => ({
+                                  ...current,
+                                  [report.id]: "Kami sudah memproses laporan ini. Jika memungkinkan, silakan datang untuk tindak lanjut lanjutan."
+                                }))
+                              }
+                              className="rounded-2xl border border-ink/10 bg-white px-4 py-2.5 text-sm font-semibold text-ink"
+                            >
+                              Template Tindak Lanjut
+                            </button>
+                          </div>
+                        </div>
+
+                        {activityByReport[report.id]?.length ? (
+                          <div className="mt-4 space-y-3">
+                            {activityByReport[report.id].slice(0, 6).map((item) => (
+                              <div key={item.id} className="rounded-2xl bg-white px-4 py-3 text-sm">
+                                <div className="flex items-center justify-between gap-3">
+                                  <span className="font-semibold text-ink">
+                                    {item.type === "status"
+                                      ? `${item.actor_name} mengubah status`
+                                      : item.type === "reply"
+                                        ? `${item.actor_name} membalas`
+                                        : `${item.actor_name} memberi catatan`}
+                                  </span>
+                                  <span className="text-xs text-ink/45">{formatDateTime(item.created_at)}</span>
+                                </div>
+                                <p className="mt-2 text-ink/65">
+                                  {item.type === "status"
+                                    ? `${item.from_status || "baru"} -> ${item.to_status || "-"}`
+                                    : item.content || "-"}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
 
                       <div className="mt-4 flex flex-wrap gap-3">

@@ -1,14 +1,25 @@
-import { loginUser, registerUser } from "../services/authService.js";
+import { registerUser } from "../services/authService.js";
 import { pool } from "../config/db.js";
 
 export async function register(req, res) {
   try {
-    const { name, email, password, organizationId, roleLabel } = req.body;
-    if (!name || !email || !password || !organizationId) {
-      return res.status(400).json({ message: "Nama, email, password, dan instansi wajib diisi." });
+    const { name, organizationId, roleLabel } = req.body;
+    if (!req.user?.firebaseUid || !req.user?.email) {
+      return res.status(401).json({ message: "Sesi Firebase tidak ditemukan." });
     }
 
-    const user = await registerUser({ name, email, password, organizationId, roleLabel });
+    if (!name || !organizationId) {
+      return res.status(400).json({ message: "Nama dan instansi wajib diisi." });
+    }
+
+    const user = await registerUser({
+      firebaseUid: req.user.firebaseUid,
+      email: req.user.email,
+      emailVerified: Boolean(req.user.emailVerified),
+      name,
+      organizationId,
+      roleLabel
+    });
     res.status(201).json({ message: "Registrasi berhasil.", user });
   } catch (error) {
     res.status(400).json({ message: error.message || "Registrasi gagal." });
@@ -16,17 +27,7 @@ export async function register(req, res) {
 }
 
 export async function login(req, res) {
-  try {
-    const { email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ message: "Email dan password wajib diisi." });
-    }
-
-    const result = await loginUser({ email, password });
-    res.json(result);
-  } catch (error) {
-    res.status(401).json({ message: error.message || "Login gagal." });
-  }
+  return res.status(410).json({ message: "Login sekarang ditangani oleh Firebase Authentication di client." });
 }
 
 export async function me(req, res) {
@@ -96,27 +97,17 @@ export async function updateMe(req, res) {
   }
 
   try {
-    const { name, email, defaultAnonymous } = req.body;
+    const { name, defaultAnonymous } = req.body;
     const trimmedName = typeof name === "string" ? name.trim() : "";
-    const trimmedEmail = typeof email === "string" ? email.trim() : "";
     const normalized = defaultAnonymous === true || defaultAnonymous === "true" ? 1 : 0;
 
-    if (!trimmedName || !trimmedEmail) {
-      return res.status(400).json({ message: "Nama dan email wajib diisi." });
-    }
-
-    const [existingUsers] = await pool.query(
-      "SELECT id FROM users WHERE email = ? AND id <> ?",
-      [trimmedEmail, req.user.id]
-    );
-
-    if (existingUsers.length > 0) {
-      return res.status(400).json({ message: "Email sudah digunakan akun lain." });
+    if (!trimmedName) {
+      return res.status(400).json({ message: "Nama wajib diisi." });
     }
 
     await pool.query(
-      "UPDATE users SET name = ?, email = ?, default_anonymous = ? WHERE id = ?",
-      [trimmedName, trimmedEmail, normalized, req.user.id]
+      "UPDATE users SET name = ?, default_anonymous = ? WHERE id = ?",
+      [trimmedName, normalized, req.user.id]
     );
 
     const [rows] = await pool.query(

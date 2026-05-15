@@ -6,7 +6,7 @@ import {
   resendOrganizationVerificationEmail,
   verifyOrganizationEmail
 } from "../controllers/organizationController.js";
-import { authenticate } from "../middlewares/authMiddleware.js";
+import { authenticate, requireAuth } from "../middlewares/authMiddleware.js";
 import { createRateLimiter } from "../middlewares/rateLimitMiddleware.js";
 import { upload } from "../middlewares/uploadMiddleware.js";
 
@@ -40,7 +40,7 @@ const reportOrganizationRateLimit = createRateLimiter({
 router.get("/", listOrganizations);
 router.get("/verify", verifyOrganizationEmail);
 router.post("/resend-verification", resendVerificationRateLimit, resendOrganizationVerificationEmail);
-router.post("/register", registerOrganizationRateLimit, upload.single("logo"), registerOrganization);
+router.post("/register", authenticate, requireAuth, registerOrganizationRateLimit, upload.single("logo"), registerOrganization);
 router.post("/:id/report-abuse", authenticate, reportOrganizationRateLimit, reportOrganizationAbuse);
 
 export default router;

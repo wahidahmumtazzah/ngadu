@@ -1,5 +1,3 @@
-import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 import { pool } from "../config/db.js";
 import { getPlatformConfig, resolveRoleOption } from "../../lib/platform-config.js";
 
@@ -25,13 +23,112 @@ function formatUserPayload(user) {
       : null,
     defaultAnonymous: Boolean(user.default_anonymous),
     isVerified: Boolean(user.is_verified),
-    isSuspended: Boolean(user.is_suspended)
+    isSuspended: Boolean(user.is_suspended),
+    firebaseUid: user.firebase_uid || null
   };
 }
 
-export async function registerUser({ name, email, password, organizationId, roleLabel }) {
-  const [exists] = await pool.query("SELECT id FROM users WHERE email = ?", [email]);
-  if (exists.length > 0) {
+async function loadUserByClause(clause, values) {
+  const [rows] = await pool.query(
+    `SELECT
+      u.id,
+      u.firebase_uid,
+      u.organization_id,
+      u.name,
+      u.email,
+      u.role,
+      u.role_label,
+      u.default_anonymous,
+      u.is_verified,
+      u.is_suspended,
+      o.name AS organization_name,
+      o.type AS organization_type,
+      o.custom_type_label AS organization_custom_type_label,
+      o.logo_url AS organization_logo_url,
+      o.address AS organization_address,
+      o.status AS organization_status,
+      o.email_verified_at AS organization_email_verified_at
+     FROM users u
+     LEFT JOIN organizations o ON u.organization_id = o.id
+     WHERE ${clause}
+     LIMIT 1`,
+    values
+  );
+
+  return rows[0] || null;
+}
+
+async function activateOrganizationIfEligible(user, emailVerified) {
+  if (
+    user?.role === "admin" &&
+    user.organization_id &&
+    user.organization_status === "pending_verification" &&
+    emailVerified
+  ) {
+    await pool.query(
+      `UPDATE organizations
+       SET status = 'active',
+           email_verified_at = COALESCE(email_verified_at, NOW()),
+           verification_token = NULL,
+           verification_sent_at = NULL
+       WHERE id = ?`,
+      [user.organization_id]
+    );
+
+    return loadUserByClause("u.id = ?", [user.id]);
+  }
+
+  return user;
+}
+
+export async function syncAppUserSession({ firebaseUid, email, emailVerified }) {
+  let user = null;
+
+  if (firebaseUid) {
+    user = await loadUserByClause("u.firebase_uid = ?", [firebaseUid]);
+  }
+
+  if (!user && email) {
+    user = await loadUserByClause("u.email = ?", [email]);
+
+    if (user && !user.firebase_uid) {
+      await pool.query(
+        `UPDATE users
+         SET firebase_uid = ?,
+             is_verified = ?
+         WHERE id = ?`,
+        [firebaseUid, emailVerified ? 1 : 0, user.id]
+      );
+      user = await loadUserByClause("u.id = ?", [user.id]);
+    }
+  }
+
+  if (!user) return null;
+
+  user = await activateOrganizationIfEligible(user, emailVerified);
+
+  await pool.query(
+    `UPDATE users
+     SET is_verified = ?
+     WHERE id = ?`,
+    [emailVerified ? 1 : 0, user.id]
+  );
+
+  return formatUserPayload(user);
+}
+
+export async function registerUser({ firebaseUid, email, emailVerified, name, organizationId, roleLabel }) {
+  if (!firebaseUid || !email) {
+    throw new Error("Sesi Firebase tidak valid.");
+  }
+
+  const [existingByUid] = await pool.query("SELECT id FROM users WHERE firebase_uid = ?", [firebaseUid]);
+  if (existingByUid.length > 0) {
+    throw new Error("Akun Firebase ini sudah terhubung.");
+  }
+
+  const [existingByEmail] = await pool.query("SELECT id FROM users WHERE email = ?", [email]);
+  if (existingByEmail.length > 0) {
     throw new Error("Email sudah terdaftar.");
   }
 
@@ -49,11 +146,10 @@ export async function registerUser({ name, email, password, organizationId, role
   }
 
   const resolvedRole = resolveRoleOption(organization.type, roleLabel);
-  const passwordHash = await bcrypt.hash(password, 10);
   const [result] = await pool.query(
-    `INSERT INTO users (organization_id, name, email, password_hash, role, role_label)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [organizationId, name, email, passwordHash, resolvedRole.systemRole, resolvedRole.label]
+    `INSERT INTO users (firebase_uid, organization_id, name, email, password_hash, role, role_label, is_verified)
+     VALUES (?, ?, ?, ?, NULL, ?, ?, ?)`,
+    [firebaseUid, organizationId, name, email, resolvedRole.systemRole, resolvedRole.label, emailVerified ? 1 : 0]
   );
 
   return {
@@ -73,71 +169,8 @@ export async function registerUser({ name, email, password, organizationId, role
       platformLabel: getPlatformConfig(organization.type).label
     },
     defaultAnonymous: true,
-    isVerified: false,
-    isSuspended: false
-  };
-}
-
-export async function loginUser({ email, password }) {
-  const [rows] = await pool.query(
-    `SELECT
-      u.id,
-      u.organization_id,
-      u.name,
-      u.email,
-      u.password_hash,
-      u.role,
-      u.role_label,
-      u.default_anonymous,
-      u.is_verified,
-      u.is_suspended,
-      o.name AS organization_name,
-      o.type AS organization_type,
-      o.custom_type_label AS organization_custom_type_label,
-      o.logo_url AS organization_logo_url,
-      o.address AS organization_address,
-      o.status AS organization_status,
-      o.email_verified_at AS organization_email_verified_at
-     FROM users u
-     LEFT JOIN organizations o ON u.organization_id = o.id
-     WHERE u.email = ?`,
-    [email]
-  );
-
-  const user = rows[0];
-  if (!user) {
-    throw new Error("Email atau password tidak valid.");
-  }
-
-  if (user.is_suspended) {
-    throw new Error("Akun ini sedang dinonaktifkan oleh admin.");
-  }
-
-  if (user.role !== "super_admin" && (user.organization_status !== "active" || !user.organization_email_verified_at)) {
-    throw new Error("Instansi belum aktif. Silakan verifikasi email organisasi terlebih dahulu.");
-  }
-
-  const isMatch = await bcrypt.compare(password, user.password_hash);
-  if (!isMatch) {
-    throw new Error("Email atau password tidak valid.");
-  }
-
-  const token = jwt.sign(
-    {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      roleLabel: user.role_label,
-      organizationId: user.organization_id,
-      organizationType: user.organization_type
-    },
-    process.env.JWT_SECRET,
-    { expiresIn: "7d" }
-  );
-
-  return {
-    token,
-    user: formatUserPayload(user)
+    isVerified: emailVerified,
+    isSuspended: false,
+    firebaseUid
   };
 }

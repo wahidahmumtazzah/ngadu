@@ -1,7 +1,15 @@
 "use client";
 
 import { apiFetch, saveAuth } from "@/lib/api";
+import { getFirebaseAuth, getFirebaseConfigError } from "@/lib/firebase-client";
 import { getRoleOptions } from "@/lib/platform-config";
+import {
+  createUserWithEmailAndPassword,
+  sendEmailVerification,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  signOut
+} from "firebase/auth";
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
@@ -17,7 +25,6 @@ export default function LoginPage() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
-  const [verificationUrl, setVerificationUrl] = useState("");
   const [organizations, setOrganizations] = useState<OrganizationOption[]>([]);
   const [organizationId, setOrganizationId] = useState("");
 
@@ -48,28 +55,68 @@ export default function LoginPage() {
     event.preventDefault();
     setLoading(true);
     setMessage("");
-    setVerificationUrl("");
 
     const form = event.currentTarget;
     const formData = new FormData(form);
     const payload = Object.fromEntries(formData.entries());
 
     try {
+      const configError = getFirebaseConfigError();
+      if (configError) {
+        throw new Error(configError);
+      }
+
+      const firebaseAuth = getFirebaseAuth();
+
       if (mode === "register") {
-        const data = await apiFetch("/auth/register", {
-          method: "POST",
-          body: JSON.stringify(payload)
-        });
-        setMessage(data.message || "Registrasi berhasil. Silakan login.");
-        setVerificationUrl(data.verification?.verifyUrl || "");
+        const credential = await createUserWithEmailAndPassword(
+          firebaseAuth,
+          String(payload.email || "").trim(),
+          String(payload.password || "")
+        );
+        await sendEmailVerification(credential.user);
+        const idToken = await credential.user.getIdToken(true);
+
+        try {
+          const data = await apiFetch("/auth/register", {
+            method: "POST",
+            body: JSON.stringify({
+              name: payload.name,
+              organizationId: payload.organizationId,
+              roleLabel: payload.roleLabel
+            }),
+            headers: {
+              Authorization: `Bearer ${idToken}`
+            }
+          });
+          setMessage('Cek email, di spam "laporin", lalu klik link tersebut.');
+          await signOut(firebaseAuth);
+        } catch (error) {
+          await credential.user.delete();
+          throw error;
+        }
+
         setMode("login");
         form.reset();
       } else {
-        const data = await apiFetch("/auth/login", {
-          method: "POST",
-          body: JSON.stringify(payload)
+        const credential = await signInWithEmailAndPassword(
+          firebaseAuth,
+          String(payload.email || "").trim(),
+          String(payload.password || "")
+        );
+
+        if (!credential.user.emailVerified) {
+          setMessage('Cek email, di spam "laporin", lalu klik link tersebut.');
+          return;
+        }
+
+        const idToken = await credential.user.getIdToken(true);
+        const data = await apiFetch("/auth/me", {
+          headers: {
+            Authorization: `Bearer ${idToken}`
+          }
         });
-        saveAuth(data);
+        saveAuth({ user: data.user });
         location.href = data.user.role === "super_admin" ? "/super-admin" : data.user.role === "admin" ? "/admin" : "/dashboard";
       }
     } catch (error) {
@@ -80,25 +127,49 @@ export default function LoginPage() {
   }
 
   async function handleResendVerification() {
-    const emailInput = document.querySelector<HTMLInputElement>('input[name="email"]');
-    const email = emailInput?.value?.trim() || "";
-    if (!email) {
-      setMessage("Isi email instansi/admin terlebih dahulu untuk kirim ulang verifikasi.");
+    const configError = getFirebaseConfigError();
+    if (configError) {
+      setMessage(configError);
+      return;
+    }
+
+    const firebaseAuth = getFirebaseAuth();
+    if (!firebaseAuth.currentUser) {
+      setMessage("Login dulu dengan akun yang belum terverifikasi agar email verifikasi bisa dikirim ulang.");
       return;
     }
 
     try {
       setResending(true);
-      const data = await apiFetch("/organizations/resend-verification", {
-        method: "POST",
-        body: JSON.stringify({ email })
-      });
-      setMessage(data.message || "Email verifikasi baru sudah dikirim.");
-      setVerificationUrl(data.verification?.verifyUrl || "");
+      await sendEmailVerification(firebaseAuth.currentUser);
+      setMessage('Cek email, di spam "laporin", lalu klik link tersebut.');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Gagal mengirim ulang verifikasi.");
     } finally {
       setResending(false);
+    }
+  }
+
+  async function handleForgotPassword() {
+    const configError = getFirebaseConfigError();
+    if (configError) {
+      setMessage(configError);
+      return;
+    }
+
+    const firebaseAuth = getFirebaseAuth();
+    const emailInput = document.querySelector<HTMLInputElement>('input[name="email"]');
+    const email = emailInput?.value?.trim() || "";
+    if (!email) {
+      setMessage("Isi email terlebih dahulu untuk kirim reset password.");
+      return;
+    }
+
+    try {
+      await sendPasswordResetEmail(firebaseAuth, email);
+      setMessage("Email reset password sudah dikirim dari Firebase.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Gagal mengirim reset password.");
     }
   }
 
@@ -167,11 +238,6 @@ export default function LoginPage() {
           {message ? (
             <div className="sm:col-span-2 rounded-2xl bg-brand-50 px-4 py-3 text-sm text-brand-700">
               <p className="font-medium">{message}</p>
-              {verificationUrl ? (
-                <a href={verificationUrl} className="mt-2 inline-block font-semibold underline">
-                  Buka link verifikasi
-                </a>
-              ) : null}
             </div>
           ) : null}
 
@@ -189,9 +255,14 @@ export default function LoginPage() {
           </button>
           <div className="flex items-center gap-4">
             {mode === "login" ? (
-              <button onClick={handleResendVerification} disabled={resending} className="font-semibold text-brand-700 disabled:opacity-60">
-                {resending ? "Mengirim ulang..." : "Kirim ulang verifikasi"}
-              </button>
+              <>
+                <button onClick={handleForgotPassword} className="font-semibold text-brand-700">
+                  Lupa password
+                </button>
+                <button onClick={handleResendVerification} disabled={resending} className="font-semibold text-brand-700 disabled:opacity-60">
+                  {resending ? "Mengirim ulang..." : "Kirim ulang verifikasi"}
+                </button>
+              </>
             ) : null}
             <Link href="/daftar-instansi" className="font-semibold text-ink">
               Buat instansi

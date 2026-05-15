@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   addEmergencyFollowup,
   createReport,
+  createReportReply,
   deleteReport,
   getAdminStats,
   getReportActivity,
@@ -20,6 +21,7 @@ router.post("/", authenticate, upload.single("photo"), createReport);
 router.patch("/:id/followup", upload.single("photo"), addEmergencyFollowup);
 router.get("/my", authenticate, requireAuth, requireActiveOrganization, getMyReports);
 router.get("/:id/activity", authenticate, requireAuth, requireActiveOrganization, getReportActivity);
+router.post("/:id/replies", authenticate, requireAuth, requireActiveOrganization, createReportReply);
 router.get("/", authenticate, requireAdmin, requireActiveOrganization, getAllReports);
 router.get("/stats/admin", authenticate, requireAdmin, requireActiveOrganization, getAdminStats);
 router.patch("/:id/status", authenticate, requireAdmin, requireActiveOrganization, updateReportStatus);

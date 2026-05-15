@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { apiFetch, getUser } from "@/lib/api";
-import { getPlatformConfig } from "@/lib/platform-config";
+import { getPlatformConfig, isSensitiveCategoryForType } from "@/lib/platform-config";
 
 type ReportItem = {
   id: number;
@@ -38,8 +38,13 @@ function getUrgencyStyle(urgency: string) {
   return "bg-brand-50 text-brand-700";
 }
 
+function isSensitiveReportCategory(organizationType: string, category: string) {
+  return isSensitiveCategoryForType(organizationType, category);
+}
+
 function getProgressWidth(status: string) {
   if (status === "selesai") return "100%";
+  if (status === "menunggu_korban") return "82%";
   if (status === "diproses") return "66%";
   return "33%";
 }
@@ -88,6 +93,7 @@ export default function UserDashboardPage() {
     () => ({
       total: reports.length,
       diproses: reports.filter((report) => report.status === "diproses").length,
+      menungguKorban: reports.filter((report) => report.status === "menunggu_korban").length,
       selesai: reports.filter((report) => report.status === "selesai").length,
       terkirim: reports.filter((report) => report.status === "terkirim").length
     }),
@@ -163,7 +169,7 @@ export default function UserDashboardPage() {
                   }}
                 >
                   <option value="">Semua status</option>
-                  {["terkirim", "diproses", "selesai", "ditolak"].map((item) => (
+                  {["terkirim", "diproses", "menunggu_korban", "selesai", "ditolak"].map((item) => (
                     <option key={item} value={item}>
                       {item}
                     </option>
@@ -184,6 +190,9 @@ export default function UserDashboardPage() {
                   <div key={report.id} className="rounded-3xl border border-ink/8 bg-white p-6">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="badge bg-ink/5 text-ink/70 capitalize">{report.category}</span>
+                      {isSensitiveReportCategory(user?.organization?.type || "custom", report.category) ? (
+                        <span className="badge bg-red-100 text-red-700">Sensitif</span>
+                      ) : null}
                       <span className={`badge capitalize ${getUrgencyStyle(report.urgency)}`}>{report.urgency}</span>
                       <StatusBadge status={report.status} />
                     </div>
@@ -197,6 +206,7 @@ export default function UserDashboardPage() {
                       <div className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.18em] text-ink/45">
                         <span>Terkirim</span>
                         <span>Diproses</span>
+                        <span>Menunggu</span>
                         <span>Selesai</span>
                       </div>
                       <div className="h-2 rounded-full bg-ink/8">
@@ -218,7 +228,10 @@ export default function UserDashboardPage() {
               <div className="mt-5 space-y-3">
                 {platformConfig.categories.map((item) => (
                   <div key={item.name} className="rounded-2xl bg-white p-4">
-                    <p className="font-semibold text-ink capitalize">{item.name}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold text-ink capitalize">{item.name}</p>
+                      {item.sensitive ? <span className="badge bg-red-100 text-red-700">Sensitif</span> : null}
+                    </div>
                     <p className="mt-1 text-sm text-ink/60">{item.description}</p>
                   </div>
                 ))}

@@ -1,7 +1,9 @@
 "use client";
 
 import { apiFetch, getUser } from "@/lib/api";
+import { getFirebaseAuth, getFirebaseConfigError } from "@/lib/firebase-client";
 import { organizationTypeOptions } from "@/lib/platform-config";
+import { createUserWithEmailAndPassword, deleteUser, sendEmailVerification, signOut } from "firebase/auth";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type OrganizationItem = {
@@ -16,7 +18,6 @@ export default function RegisterOrganizationPage() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [organizationType, setOrganizationType] = useState("school");
-  const [verificationUrl, setVerificationUrl] = useState("");
   const [organizations, setOrganizations] = useState<OrganizationItem[]>([]);
   const [reportingOrganizationId, setReportingOrganizationId] = useState<number | null>(null);
   const [reportReason, setReportReason] = useState("");
@@ -42,18 +43,38 @@ export default function RegisterOrganizationPage() {
     event.preventDefault();
     setLoading(true);
     setMessage("");
-    setVerificationUrl("");
 
     const form = event.currentTarget;
     const formData = new FormData(form);
+    const adminEmail = String(formData.get("adminEmail") || "").trim();
+    const adminPassword = String(formData.get("adminPassword") || "");
 
     try {
-      const data = await apiFetch("/organizations/register", {
-        method: "POST",
-        body: formData
-      });
-      setMessage(data.message || "Instansi berhasil dibuat. Silakan cek email untuk verifikasi.");
-      setVerificationUrl(data.verification?.verifyUrl || "");
+      const configError = getFirebaseConfigError();
+      if (configError) {
+        throw new Error(configError);
+      }
+
+      const firebaseAuth = getFirebaseAuth();
+      const credential = await createUserWithEmailAndPassword(firebaseAuth, adminEmail, adminPassword);
+      await sendEmailVerification(credential.user);
+      const idToken = await credential.user.getIdToken(true);
+
+      try {
+        const data = await apiFetch("/organizations/register", {
+          method: "POST",
+          body: formData,
+          headers: {
+            Authorization: `Bearer ${idToken}`
+          }
+        });
+        setMessage('Cek email, di spam "laporin", lalu klik link tersebut.');
+        await signOut(firebaseAuth);
+      } catch (error) {
+        await deleteUser(credential.user);
+        throw error;
+      }
+
       form.reset();
       setOrganizationType("school");
       await loadOrganizations();
@@ -169,11 +190,6 @@ export default function RegisterOrganizationPage() {
             {message ? (
               <div className="sm:col-span-2 rounded-2xl bg-brand-50 px-4 py-3 text-sm text-brand-700">
                 <p className="font-medium">{message}</p>
-                {verificationUrl ? (
-                  <a href={verificationUrl} className="mt-2 inline-block font-semibold underline">
-                    Verifikasi email sekarang
-                  </a>
-                ) : null}
               </div>
             ) : null}
 

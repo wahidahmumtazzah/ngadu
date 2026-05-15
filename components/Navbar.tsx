@@ -83,7 +83,7 @@ export function Navbar() {
     <header className="sticky top-0 z-40 border-b border-ink/5 bg-sand/80 backdrop-blur">
       <div className="container-app flex items-center justify-between gap-4 py-4">
         <Link href={homeHref} className="text-xl font-black tracking-tight text-ink">
-          NgaduAja
+          lapor.in
         </Link>
 
         <nav className="hidden items-center gap-6 text-sm font-medium text-ink/70 md:flex">
@@ -112,8 +112,8 @@ export function Navbar() {
                 {user.name} · {user.roleLabel || user.role}
               </span>
               <button
-                onClick={() => {
-                  clearAuth();
+                onClick={async () => {
+                  await clearAuth();
                   location.href = "/";
                 }}
                 className="btn-secondary"

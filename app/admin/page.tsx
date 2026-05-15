@@ -119,11 +119,16 @@ function getCategoryTone(category: string) {
     keamanan: "bg-emerald-100 text-emerald-700",
     kebersihan: "bg-cyan-100 text-cyan-700",
     bullying: "bg-violet-100 text-violet-700",
+    pelecehan: "bg-red-100 text-red-700",
     pelayanan: "bg-amber-100 text-amber-700",
     lingkungan: "bg-teal-100 text-teal-700"
   };
 
   return tones[category] || "bg-ink/5 text-ink/70";
+}
+
+function isSensitiveCategory(category: string) {
+  return category.trim().toLowerCase() === "pelecehan";
 }
 
 function buildDonutGradient(data: ChartDatum[]) {
@@ -710,7 +715,10 @@ export default function AdminPage() {
                         <p className="mt-1 text-xs text-ink/55">{report.detail_location || report.description.slice(0, 72)}</p>
                       </td>
                       <td className="px-3 py-4">
-                        <span className={`badge capitalize ${getCategoryTone(report.category)}`}>{report.category}</span>
+                        <div className="flex flex-wrap gap-2">
+                          <span className={`badge capitalize ${getCategoryTone(report.category)}`}>{report.category}</span>
+                          {isSensitiveCategory(report.category) ? <span className="badge bg-red-100 text-red-700">Sensitif</span> : null}
+                        </div>
                       </td>
                       <td className="px-3 py-4 text-ink/70">{report.reporter_name}</td>
                       <td className="px-3 py-4">
@@ -799,6 +807,7 @@ export default function AdminPage() {
                         <div className="flex flex-wrap items-center gap-2">
                           {report.is_emergency ? <span className="badge bg-red-500 text-white">SOS</span> : null}
                           <span className={`badge capitalize ${getCategoryTone(report.category)}`}>{report.category}</span>
+                          {isSensitiveCategory(report.category) ? <span className="badge bg-red-100 text-red-700">Sensitif</span> : null}
                           <span className="badge bg-brand-50 text-brand-700 capitalize">{report.urgency}</span>
                           <StatusBadge status={report.status} />
                           {recentlySavedReportId === report.id ? <span className="badge bg-emerald-100 text-emerald-700">Tersimpan</span> : null}
@@ -812,6 +821,12 @@ export default function AdminPage() {
                           <p>Update: {formatDateTime(report.updated_at)}</p>
                         </div>
                         <p className="mt-4 text-sm leading-6 text-ink/70">{report.description}</p>
+
+                        {isSensitiveCategory(report.category) ? (
+                          <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700">
+                            Laporan sensitif. Identitas pelapor disamarkan dan tindak lanjut sebaiknya memakai balasan yang hati-hati.
+                          </div>
+                        ) : null}
 
                         <div className="mt-5 grid gap-3 md:grid-cols-2">
                           <select className="input" value={draft?.status || report.status} onChange={(event) => setDraft(report.id, { status: event.target.value })}>

@@ -1,8 +1,11 @@
-import jwt from "jsonwebtoken";
 import { pool } from "../config/db.js";
+import { getFirebaseAdminAuth } from "../config/firebaseAdmin.js";
+import { syncAppUserSession } from "../services/authService.js";
 
-export function authenticate(req, _res, next) {
+export async function authenticate(req, _res, next) {
   const authHeader = req.headers.authorization;
+  req.authError = null;
+
   if (!authHeader?.startsWith("Bearer ")) {
     req.user = null;
     return next();
@@ -11,9 +14,27 @@ export function authenticate(req, _res, next) {
   const token = authHeader.split(" ")[1];
 
   try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET);
-  } catch {
+    const decodedToken = await getFirebaseAdminAuth().verifyIdToken(token);
+    const appUser = await syncAppUserSession({
+      firebaseUid: decodedToken.uid,
+      email: decodedToken.email || "",
+      emailVerified: Boolean(decodedToken.email_verified)
+    });
+
+    req.user = {
+      firebaseUid: decodedToken.uid,
+      email: decodedToken.email || null,
+      emailVerified: Boolean(decodedToken.email_verified),
+      id: appUser?.id || null,
+      name: appUser?.name || decodedToken.name || null,
+      role: appUser?.role || null,
+      roleLabel: appUser?.roleLabel || null,
+      organizationId: appUser?.organizationId || null,
+      isSuspended: Boolean(appUser?.isSuspended)
+    };
+  } catch (error) {
     req.user = null;
+    req.authError = error instanceof Error ? error.message : "Sesi autentikasi tidak valid.";
   }
 
   next();
@@ -21,6 +42,9 @@ export function authenticate(req, _res, next) {
 
 export function requireAuth(req, res, next) {
   if (!req.user) {
+    if (req.authError) {
+      return res.status(401).json({ message: `Autentikasi gagal: ${req.authError}` });
+    }
     return res.status(401).json({ message: "Akses ditolak. Silakan login." });
   }
   next();
@@ -43,6 +67,14 @@ export function requireSuperAdmin(req, res, next) {
 export async function requireActiveOrganization(req, res, next) {
   if (req.user?.role === "super_admin") {
     return next();
+  }
+
+  if (req.user?.isSuspended) {
+    return res.status(403).json({ message: "Akun ini sedang dinonaktifkan oleh admin." });
+  }
+
+  if (!req.user?.emailVerified) {
+    return res.status(403).json({ message: "Email akun belum diverifikasi di Firebase." });
   }
 
   if (!req.user?.organizationId) {

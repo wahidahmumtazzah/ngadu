@@ -1,13 +1,8 @@
-import bcrypt from "bcryptjs";
 import { pool } from "../config/db.js";
 import { getPlatformConfig, resolveRoleOption } from "../../lib/platform-config.js";
 import {
-  activateOrganizationByToken,
-  buildOrganizationVerificationUrl,
   createOrganizationAbuseReport,
-  createOrganizationVerificationToken,
-  resendOrganizationVerification,
-  sendOrganizationVerificationEmail
+  createOrganizationVerificationToken
 } from "../services/organizationService.js";
 
 function normalizeLogo(file) {
@@ -101,21 +96,22 @@ export async function registerOrganization(req, res) {
       customTypeLabel,
       address,
       adminName,
-      adminEmail,
-      adminPassword,
       phone
     } = req.body;
 
-    if (!organizationName || !organizationType || !adminName || !adminEmail || !adminPassword) {
+    if (!req.user?.firebaseUid || !req.user?.email) {
+      return res.status(401).json({ message: "Sesi Firebase admin tidak ditemukan." });
+    }
+
+    if (!organizationName || !organizationType || !adminName) {
       return res.status(400).json({ message: "Data instansi dan admin wajib diisi lengkap." });
     }
 
     const config = getPlatformConfig(organizationType);
     const logoUrl = normalizeLogo(req.file);
     const verificationToken = createOrganizationVerificationToken();
-    const verificationUrl = buildOrganizationVerificationUrl(verificationToken);
     const normalizedOrganizationName = normalizeOrganizationName(organizationName);
-    const trimmedAdminEmail = adminEmail.trim();
+    const trimmedAdminEmail = req.user.email.trim();
     const trimmedOrganizationName = organizationName.trim();
     const trimmedAdminName = adminName.trim();
     const trimmedAddress = address?.trim() || null;
@@ -124,6 +120,7 @@ export async function registerOrganization(req, res) {
     const [existingUsers] = await connection.query(
       `SELECT
         u.id,
+        u.firebase_uid,
         u.organization_id,
         u.role,
         o.status AS organization_status,
@@ -139,6 +136,7 @@ export async function registerOrganization(req, res) {
     const canReusePendingRegistration =
       existingUser &&
       existingUser.role === "admin" &&
+      (existingUser.firebase_uid === req.user.firebaseUid || !existingUser.firebase_uid) &&
       existingUser.organization_id &&
       existingUser.organization_status === "pending_verification" &&
       !existingUser.email_verified_at;
@@ -170,7 +168,6 @@ export async function registerOrganization(req, res) {
 
     await connection.beginTransaction();
 
-    const passwordHash = await bcrypt.hash(adminPassword, 10);
     const adminRole = resolveRoleOption(organizationType, "admin");
     const customLabel = organizationType === "custom" ? customTypeLabel?.trim() || null : null;
 
@@ -211,12 +208,13 @@ export async function registerOrganization(req, res) {
       await connection.query(
         `UPDATE users
          SET name = ?,
-             password_hash = ?,
+             firebase_uid = ?,
              role = 'admin',
              role_label = ?,
-             is_suspended = 0
+             is_suspended = 0,
+             is_verified = ?
          WHERE id = ?`,
-        [trimmedAdminName, passwordHash, adminRole.label, existingUser.id]
+        [trimmedAdminName, req.user.firebaseUid, adminRole.label, req.user.emailVerified ? 1 : 0, existingUser.id]
       );
 
       userId = existingUser.id;
@@ -255,20 +253,22 @@ export async function registerOrganization(req, res) {
         await connection.query(
           `UPDATE users
            SET name = ?,
+               firebase_uid = ?,
                email = ?,
-               password_hash = ?,
+               password_hash = NULL,
                role = 'admin',
                role_label = ?,
-               is_suspended = 0
+               is_suspended = 0,
+               is_verified = ?
            WHERE id = ?`,
-          [trimmedAdminName, trimmedAdminEmail, passwordHash, adminRole.label, pendingOrganizationAdmin.id]
+          [trimmedAdminName, req.user.firebaseUid, trimmedAdminEmail, adminRole.label, req.user.emailVerified ? 1 : 0, pendingOrganizationAdmin.id]
         );
         userId = pendingOrganizationAdmin.id;
       } else {
         const [userResult] = await connection.query(
-          `INSERT INTO users (organization_id, name, email, password_hash, role, role_label)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [organizationId, trimmedAdminName, trimmedAdminEmail, passwordHash, "admin", adminRole.label]
+          `INSERT INTO users (firebase_uid, organization_id, name, email, password_hash, role, role_label, is_verified)
+           VALUES (?, ?, ?, ?, NULL, ?, ?, ?)`,
+          [req.user.firebaseUid, organizationId, trimmedAdminName, trimmedAdminEmail, "admin", adminRole.label, req.user.emailVerified ? 1 : 0]
         );
         userId = userResult.insertId;
       }
@@ -292,34 +292,20 @@ export async function registerOrganization(req, res) {
       organizationId = organizationResult.insertId;
 
       const [userResult] = await connection.query(
-        `INSERT INTO users (organization_id, name, email, password_hash, role, role_label)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [organizationId, trimmedAdminName, trimmedAdminEmail, passwordHash, "admin", adminRole.label]
+        `INSERT INTO users (firebase_uid, organization_id, name, email, password_hash, role, role_label, is_verified)
+         VALUES (?, ?, ?, ?, NULL, ?, ?, ?)`,
+        [req.user.firebaseUid, organizationId, trimmedAdminName, trimmedAdminEmail, "admin", adminRole.label, req.user.emailVerified ? 1 : 0]
       );
 
       userId = userResult.insertId;
     }
 
-    const delivery = await sendOrganizationVerificationEmail({
-      email: trimmedAdminEmail,
-      organizationName: trimmedOrganizationName,
-      verificationUrl
-    });
-
-    if (process.env.NODE_ENV === "production" && !delivery.delivered) {
-      throw new Error("Email verifikasi gagal dikirim. Pendaftaran dibatalkan.");
-    }
-
     await connection.commit();
-
-    if (process.env.NODE_ENV !== "production") {
-      console.log(`[organization-verification] ${verificationUrl}`);
-    }
 
     res.status(201).json({
       message: canReusePendingRegistration
-        ? "Draft instansi pending diperbarui. Silakan verifikasi email terlebih dahulu sebelum login."
-        : "Instansi berhasil dibuat. Silakan verifikasi email terlebih dahulu sebelum login.",
+        ? "Draft instansi pending diperbarui. Verifikasi email Firebase Anda untuk mengaktifkan workspace."
+        : "Instansi berhasil dibuat. Verifikasi email Firebase Anda untuk mengaktifkan workspace.",
       organization: {
         id: organizationId,
         name: trimmedOrganizationName,
@@ -337,14 +323,8 @@ export async function registerOrganization(req, res) {
         email: trimmedAdminEmail,
         role: "admin",
         roleLabel: adminRole.label
-      },
-      verification: {
-        required: true,
-        email: trimmedAdminEmail,
-        deliveryMode: delivery.mode,
-        verifyUrl: process.env.NODE_ENV === "production" ? null : verificationUrl
       }
-      });
+    });
   } catch (error) {
     try {
       await connection.rollback();
@@ -360,58 +340,9 @@ export async function registerOrganization(req, res) {
 }
 
 export async function verifyOrganizationEmail(req, res) {
-  try {
-    const { token } = req.query;
-    if (!token) {
-      return res.status(400).json({ message: "Token verifikasi tidak ditemukan." });
-    }
-
-    const result = await activateOrganizationByToken(String(token));
-
-    if (result.status === "not_found") {
-      return res.status(404).json({ message: "Token verifikasi tidak valid atau sudah kedaluwarsa." });
-    }
-
-    if (result.status === "already_active") {
-      return res.json({ message: "Instansi ini sudah aktif. Silakan login." });
-    }
-
-    res.json({ message: "Email berhasil diverifikasi. Workspace instansi sekarang aktif." });
-  } catch (error) {
-    res.status(500).json({ message: "Gagal memverifikasi email instansi.", error: error.message });
-  }
+  return res.status(410).json({ message: "Verifikasi email sekarang ditangani langsung oleh Firebase Authentication." });
 }
 
 export async function resendOrganizationVerificationEmail(req, res) {
-  try {
-    const { email } = req.body;
-    if (!email) {
-      return res.status(400).json({ message: "Email instansi wajib diisi." });
-    }
-
-    const result = await resendOrganizationVerification(String(email).trim());
-
-    if (result.status === "not_found") {
-      return res.status(404).json({ message: "Instansi dengan email tersebut tidak ditemukan." });
-    }
-
-    if (result.status === "already_active") {
-      return res.json({ message: "Instansi ini sudah aktif. Silakan login." });
-    }
-
-    if (process.env.NODE_ENV !== "production") {
-      console.log(`[organization-verification-resend] ${result.verificationUrl}`);
-    }
-
-    res.json({
-      message: "Email verifikasi baru sudah dikirim.",
-      verification: {
-        email: email.trim(),
-        deliveryMode: result.delivery.mode,
-        verifyUrl: process.env.NODE_ENV === "production" ? null : result.verificationUrl
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ message: "Gagal mengirim ulang email verifikasi.", error: error.message });
-  }
+  return res.status(410).json({ message: "Kirim ulang verifikasi sekarang ditangani oleh Firebase Authentication di client." });
 }
