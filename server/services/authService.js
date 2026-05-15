@@ -14,18 +14,22 @@ export async function registerUser({ name, email, password, role = "user" }) {
     [name, email, passwordHash, role]
   );
 
-  return { id: result.insertId, name, email, role, defaultAnonymous: true };
+  return { id: result.insertId, name, email, role, defaultAnonymous: true, isVerified: false, isSuspended: false };
 }
 
 export async function loginUser({ email, password }) {
   const [rows] = await pool.query(
-    "SELECT id, name, email, password_hash, role, default_anonymous FROM users WHERE email = ?",
+    "SELECT id, name, email, password_hash, role, default_anonymous, is_verified, is_suspended FROM users WHERE email = ?",
     [email]
   );
 
   const user = rows[0];
   if (!user) {
     throw new Error("Email atau password tidak valid.");
+  }
+
+  if (user.is_suspended) {
+    throw new Error("Akun ini sedang dinonaktifkan oleh admin.");
   }
 
   const isMatch = await bcrypt.compare(password, user.password_hash);
@@ -46,7 +50,9 @@ export async function loginUser({ email, password }) {
       name: user.name,
       email: user.email,
       role: user.role,
-      defaultAnonymous: Boolean(user.default_anonymous)
+      defaultAnonymous: Boolean(user.default_anonymous),
+      isVerified: Boolean(user.is_verified),
+      isSuspended: Boolean(user.is_suspended)
     }
   };
 }

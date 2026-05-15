@@ -13,10 +13,8 @@ type NavItem = {
 function getNavItems(pathname: string, role?: string): NavItem[] {
   if (role === "admin") {
     return [
-      { href: "/", label: "Beranda" },
-      { href: "/admin", label: "Ringkasan Admin" },
-      { href: "/admin", label: "Kelola Laporan" },
-      { href: "/lapor", label: "Buat Laporan" }
+      { href: "/admin", label: "Dashboard Admin" },
+      { href: "/admin/laporan", label: "Kelola Laporan" }
     ];
   }
 
@@ -30,14 +28,12 @@ function getNavItems(pathname: string, role?: string): NavItem[] {
 
   if (pathname.startsWith("/admin")) {
     return [
-      { href: "/", label: "Beranda" },
       { href: "/#kategori", label: "Kategori" },
       { href: "/lapor", label: "Kirim Aduan" }
     ];
   }
 
   return [
-    { href: "/", label: "Beranda" },
     { href: "/#tentang", label: "Tentang" },
     { href: "/#kategori", label: "Kategori" },
     { href: "/lapor", label: "Kirim Aduan" }
@@ -53,11 +49,12 @@ export function Navbar() {
   }, []);
 
   const navItems = getNavItems(pathname, user?.role);
+  const homeHref = user?.role === "admin" ? "/admin" : user?.role === "user" ? "/dashboard" : "/";
 
   return (
     <header className="sticky top-0 z-40 border-b border-ink/5 bg-sand/80 backdrop-blur">
       <div className="container-app flex items-center justify-between gap-4 py-4">
-        <Link href="/" className="text-xl font-black tracking-tight text-ink">
+        <Link href={homeHref} className="text-xl font-black tracking-tight text-ink">
           NgaduAja
         </Link>
 

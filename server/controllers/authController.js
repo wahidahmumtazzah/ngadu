@@ -36,7 +36,7 @@ export async function me(req, res) {
 
   try {
     const [rows] = await pool.query(
-      "SELECT id, name, email, role, default_anonymous FROM users WHERE id = ?",
+      "SELECT id, name, email, role, default_anonymous, is_verified, is_suspended FROM users WHERE id = ?",
       [req.user.id]
     );
 
@@ -51,7 +51,9 @@ export async function me(req, res) {
         name: user.name,
         email: user.email,
         role: user.role,
-        defaultAnonymous: Boolean(user.default_anonymous)
+        defaultAnonymous: Boolean(user.default_anonymous),
+        isVerified: Boolean(user.is_verified),
+        isSuspended: Boolean(user.is_suspended)
       }
     });
   } catch (error) {
@@ -89,7 +91,7 @@ export async function updateMe(req, res) {
     );
 
     const [rows] = await pool.query(
-      "SELECT id, name, email, role, default_anonymous FROM users WHERE id = ?",
+      "SELECT id, name, email, role, default_anonymous, is_verified, is_suspended FROM users WHERE id = ?",
       [req.user.id]
     );
 
@@ -101,7 +103,9 @@ export async function updateMe(req, res) {
         name: user.name,
         email: user.email,
         role: user.role,
-        defaultAnonymous: Boolean(user.default_anonymous)
+        defaultAnonymous: Boolean(user.default_anonymous),
+        isVerified: Boolean(user.is_verified),
+        isSuspended: Boolean(user.is_suspended)
       }
     });
   } catch (error) {

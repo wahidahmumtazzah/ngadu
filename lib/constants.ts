@@ -24,9 +24,10 @@ export const contohFasilitas = [
   "parkiran"
 ];
 
-export const statusLaporan = ["terkirim", "diproses", "selesai"];
+export const statusLaporan = ["terkirim", "diproses", "selesai", "ditolak"];
 export const tingkatUrgensi = ["rendah", "sedang", "tinggi"];
 export const tingkatBahayaDarurat = ["sedang", "tinggi", "kritis"];
+export const rolePengguna = ["admin", "petugas", "user"];
 
 export const kategoriDarurat = [
   {

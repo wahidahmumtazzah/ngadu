@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import bcrypt from "bcryptjs";
 import { initializeDatabase, pool } from "./config/db.js";
 import authRoutes from "./routes/authRoutes.js";
+import adminRoutes from "./routes/adminRoutes.js";
 import reportRoutes from "./routes/reportRoutes.js";
 
 dotenv.config();
@@ -44,6 +45,7 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/admin", adminRoutes);
 app.use("/api/reports", reportRoutes);
 
 app.use((err, _req, res, _next) => {

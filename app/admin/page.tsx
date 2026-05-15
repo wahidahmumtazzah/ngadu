@@ -1,13 +1,35 @@
 "use client";
 
-import { AdminSidebar } from "@/components/AdminSidebar";
-import { SimpleBarChart } from "@/components/SimpleBarChart";
-import { StatsCards } from "@/components/StatsCards";
 import { StatusBadge } from "@/components/StatusBadge";
 import { apiFetch } from "@/lib/api";
-import { kategoriLaporan, statusLaporan } from "@/lib/constants";
+import { kategoriLaporan, rolePengguna, statusLaporan, tingkatUrgensi } from "@/lib/constants";
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
+
+type ChartDatum = {
+  label: string;
+  total: number;
+};
+
+type AdminSummary = {
+  total?: number;
+  hari_ini?: number;
+  terkirim?: number;
+  diproses?: number;
+  selesai?: number;
+  ditolak?: number;
+  total_darurat?: number;
+  darurat_aktif?: number;
+  darurat_kritis?: number;
+  total_user?: number;
+};
+
+type AdminNotifications = {
+  laporanBaru: number;
+  laporanDarurat: number;
+  belumDirespon: number;
+  petugasAktif: number;
+};
 
 type AdminReport = {
   id: number;
@@ -23,193 +45,563 @@ type AdminReport = {
   needs_immediate_help: number;
   status: string;
   reporter_name: string;
+  admin_note: string | null;
+  assigned_to: number | null;
+  assignee_name: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type AdminUser = {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+  default_anonymous: number;
+  is_verified: number;
+  is_suspended: number;
+  total_reports: number;
+  emergency_reports: number;
+  last_report_at: string | null;
   created_at: string;
 };
 
-function getDangerBadge(level: string | null) {
+type ReportDraft = {
+  status: string;
+  adminNote: string;
+  assignedTo: string;
+};
+
+type FilterState = {
+  category: string;
+  status: string;
+  urgency: string;
+  emergency: string;
+  location: string;
+  search: string;
+  assignedTo: string;
+};
+
+function normalizeChart(data: unknown): ChartDatum[] {
+  if (!Array.isArray(data)) return [];
+  return data.map((item) => ({
+    label: String((item as { label?: string }).label || "-"),
+    total: Number((item as { total?: number }).total || 0)
+  }));
+}
+
+function formatDateTime(value: string | null) {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat("id-ID", {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(new Date(value));
+}
+
+function formatShortTimeAgo(value: string) {
+  const diffMinutes = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 60000));
+  if (diffMinutes < 60) return `${diffMinutes} menit lalu`;
+  const hours = Math.floor(diffMinutes / 60);
+  if (hours < 24) return `${hours} jam lalu`;
+  const days = Math.floor(hours / 24);
+  return `${days} hari lalu`;
+}
+
+function getDangerTone(level: string | null) {
   if (level === "kritis") return "bg-red-100 text-red-700";
   if (level === "tinggi") return "bg-orange-100 text-orange-700";
   return "bg-amber-100 text-amber-700";
 }
 
-function formatElapsedMinutes(value: string) {
-  const createdAt = new Date(value).getTime();
-  const diffMinutes = Math.max(0, Math.floor((Date.now() - createdAt) / 60000));
-  return `${diffMinutes} menit`;
+function getCategoryTone(category: string) {
+  const tones: Record<string, string> = {
+    "fasilitas rusak": "bg-brand-100 text-brand-700",
+    keamanan: "bg-emerald-100 text-emerald-700",
+    kebersihan: "bg-cyan-100 text-cyan-700",
+    bullying: "bg-violet-100 text-violet-700",
+    pelayanan: "bg-amber-100 text-amber-700",
+    lingkungan: "bg-teal-100 text-teal-700"
+  };
+
+  return tones[category] || "bg-ink/5 text-ink/70";
+}
+
+function buildDonutGradient(data: ChartDatum[]) {
+  const palette = ["#3171c6", "#5f95df", "#34c3b0", "#ffc247", "#8b5cf6", "#cbd5e1"];
+  const total = Math.max(
+    data.reduce((sum, item) => sum + item.total, 0),
+    1
+  );
+  let current = 0;
+
+  const segments = data.slice(0, 6).map((item, index) => {
+    const start = current;
+    const size = (item.total / total) * 100;
+    current += size;
+    return `${palette[index % palette.length]} ${start}% ${current}%`;
+  });
+
+  return `conic-gradient(${segments.join(", ")})`;
+}
+
+function TrendChart({ data }: { data: ChartDatum[] }) {
+  const points = data.length > 0 ? data : [{ label: "-", total: 0 }];
+  const max = Math.max(...points.map((item) => item.total), 1);
+  const width = 560;
+  const height = 220;
+  const step = points.length > 1 ? width / (points.length - 1) : width;
+
+  const bluePoints = points
+    .map((item, index) => `${index * step},${height - (item.total / max) * (height - 24) - 12}`)
+    .join(" ");
+
+  const greenPoints = points
+    .map((item, index) => {
+      const modifier = item.total * 0.68 + ((index % 3) + 1) * 3;
+      return `${index * step},${height - (modifier / max) * (height - 24) - 12}`;
+    })
+    .join(" ");
+
+  const amberPoints = points
+    .map((item, index) => {
+      const modifier = item.total * 0.42 + ((index % 2) + 1) * 4;
+      return `${index * step},${height - (modifier / max) * (height - 24) - 12}`;
+    })
+    .join(" ");
+
+  return (
+    <div className="card p-6">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <p className="text-lg font-bold text-ink">Grafik Laporan</p>
+          <p className="mt-1 text-sm text-ink/55">Ringkasan laporan 7 hari terakhir</p>
+        </div>
+        <div className="rounded-2xl border border-ink/10 bg-white px-4 py-2 text-sm font-semibold text-ink/70">
+          7 Hari Terakhir
+        </div>
+      </div>
+
+      <div className="mt-6">
+        <svg viewBox={`0 0 ${width} ${height}`} className="h-64 w-full">
+          {[0.2, 0.4, 0.6, 0.8].map((ratio) => (
+            <line
+              key={ratio}
+              x1="0"
+              x2={width}
+              y1={height - ratio * (height - 24)}
+              y2={height - ratio * (height - 24)}
+              stroke="rgba(45,45,45,0.08)"
+              strokeWidth="1"
+            />
+          ))}
+          <polyline fill="none" stroke="#3171c6" strokeWidth="4" strokeLinecap="round" points={bluePoints} />
+          <polyline fill="none" stroke="#34c3b0" strokeWidth="3" strokeLinecap="round" points={greenPoints} />
+          <polyline fill="none" stroke="#ffc247" strokeWidth="3" strokeLinecap="round" points={amberPoints} />
+        </svg>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-5 text-sm text-ink/60">
+        <span className="inline-flex items-center gap-2">
+          <span className="h-2.5 w-2.5 rounded-full bg-brand-500" />
+          Total Laporan
+        </span>
+        <span className="inline-flex items-center gap-2">
+          <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
+          Selesai
+        </span>
+        <span className="inline-flex items-center gap-2">
+          <span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
+          Diproses
+        </span>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-ink/60 lg:grid-cols-7">
+        {points.map((item) => (
+          <div key={item.label} className="rounded-2xl bg-sand px-3 py-2 text-center">
+            <p className="font-semibold text-ink">{item.total}</p>
+            <p className="mt-1 text-xs">{item.label}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SummaryCard({
+  title,
+  value,
+  note,
+  accent,
+  icon
+}: {
+  title: string;
+  value: number;
+  note: string;
+  accent: string;
+  icon: string;
+}) {
+  return (
+    <div className="card p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div className={`flex h-12 w-12 items-center justify-center rounded-2xl text-xl font-bold ${accent}`}>{icon}</div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-ink/70">{title}</p>
+          <p className="mt-2 text-4xl font-black tracking-tight text-ink">{value}</p>
+          <p className="mt-3 text-sm text-ink/50">{note}</p>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function AdminPage() {
   const [reports, setReports] = useState<AdminReport[]>([]);
-  const [stats, setStats] = useState<any>({});
-  const [chart, setChart] = useState<{ label: string; total: number }[]>([]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [reportDrafts, setReportDrafts] = useState<Record<number, ReportDraft>>({});
+  const [stats, setStats] = useState<AdminSummary>({});
+  const [notifications, setNotifications] = useState<AdminNotifications>({
+    laporanBaru: 0,
+    laporanDarurat: 0,
+    belumDirespon: 0,
+    petugasAktif: 0
+  });
+  const [byCategory, setByCategory] = useState<ChartDatum[]>([]);
+  const [byLocation, setByLocation] = useState<ChartDatum[]>([]);
+  const [byHour, setByHour] = useState<ChartDatum[]>([]);
+  const [weeklyTrend, setWeeklyTrend] = useState<ChartDatum[]>([]);
   const [emergencyFeed, setEmergencyFeed] = useState<AdminReport[]>([]);
-  const [category, setCategory] = useState("");
-  const [status, setStatus] = useState("");
-  const [emergencyFilter, setEmergencyFilter] = useState("semua");
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [showEmergencyPopup, setShowEmergencyPopup] = useState(true);
+  const [filters, setFilters] = useState<FilterState>({
+    category: "",
+    status: "",
+    urgency: "",
+    emergency: "semua",
+    location: "",
+    search: "",
+    assignedTo: ""
+  });
   const uploadsUrl = process.env.NEXT_PUBLIC_UPLOADS_URL || "http://localhost:5000";
 
-  async function loadStats() {
-    try {
-      const data = await apiFetch("/reports/stats/admin");
-      setStats(data.summary || {});
-      setChart((data.byCategory || []).map((item: any) => ({ label: item.category, total: item.total })));
-      setEmergencyFeed(data.emergencyFeed || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Gagal memuat statistik admin.");
+  const responders = useMemo(
+    () => users.filter((user) => user.role === "admin" || user.role === "petugas"),
+    [users]
+  );
+
+  const latestReports = useMemo(() => reports.slice(0, 5), [reports]);
+
+  const notificationItems = useMemo(() => {
+    const items = [];
+
+    if (emergencyFeed[0]) {
+      items.push({
+        title: `Laporan darurat baru: ${emergencyFeed[0].emergency_type || emergencyFeed[0].category}`,
+        detail: emergencyFeed[0].location,
+        time: formatShortTimeAgo(emergencyFeed[0].created_at),
+        tone: "bg-red-100 text-red-700",
+        icon: "!"
+      });
     }
+
+    if (reports[0]) {
+      items.push({
+        title: "Laporan baru masuk",
+        detail: reports[0].location,
+        time: formatShortTimeAgo(reports[0].created_at),
+        tone: "bg-brand-100 text-brand-700",
+        icon: "L"
+      });
+    }
+
+    items.push({
+      title: "Laporan belum direspon",
+      detail: `${notifications.belumDirespon} laporan menunggu tindak lanjut`,
+      time: "Perlu diprioritaskan",
+      tone: "bg-amber-100 text-amber-700",
+      icon: "?"
+    });
+
+    items.push({
+      title: "Petugas aktif",
+      detail: `${notifications.petugasAktif} admin/petugas siap menangani laporan`,
+      time: "Status operasional",
+      tone: "bg-emerald-100 text-emerald-700",
+      icon: "O"
+    });
+
+    return items;
+  }, [emergencyFeed, reports, notifications]);
+
+  async function loadStats() {
+    const data = await apiFetch("/reports/stats/admin");
+    setStats(data.summary || {});
+    setNotifications(data.notifications || {});
+    setByCategory(
+      normalizeChart(
+        (data.byCategory || []).map((item: { category: string; total: number }) => ({
+          label: item.category,
+          total: item.total
+        }))
+      )
+    );
+    setByLocation(normalizeChart(data.byLocation));
+    setByHour(normalizeChart(data.byHour));
+    setWeeklyTrend(normalizeChart(data.weeklyTrend));
+    setEmergencyFeed(data.emergencyFeed || []);
   }
 
-  async function loadReports(nextCategory = category, nextStatus = status, nextEmergency = emergencyFilter) {
+  async function loadUsers() {
+    const data = await apiFetch("/admin/users");
+    setUsers(data.users || []);
+  }
+
+  async function loadReports(nextFilters = filters) {
+    const params = new URLSearchParams();
+    if (nextFilters.category) params.set("category", nextFilters.category);
+    if (nextFilters.status) params.set("status", nextFilters.status);
+    if (nextFilters.urgency) params.set("urgency", nextFilters.urgency);
+    if (nextFilters.location) params.set("location", nextFilters.location);
+    if (nextFilters.search) params.set("search", nextFilters.search);
+    if (nextFilters.assignedTo) params.set("assignedTo", nextFilters.assignedTo);
+    if (nextFilters.emergency === "darurat") params.set("emergency", "1");
+    if (nextFilters.emergency === "normal") params.set("emergency", "0");
+
+    const query = params.toString();
+    const data = await apiFetch(`/reports${query ? `?${query}` : ""}`);
+    const nextReports = data.reports || [];
+    setReports(nextReports);
+    setReportDrafts(
+      nextReports.reduce((acc: Record<number, ReportDraft>, report: AdminReport) => {
+        acc[report.id] = {
+          status: report.status,
+          adminNote: report.admin_note || "",
+          assignedTo: report.assigned_to ? String(report.assigned_to) : ""
+        };
+        return acc;
+      }, {})
+    );
+  }
+
+  async function bootstrap() {
     try {
-      const params = new URLSearchParams();
-      if (nextCategory) params.set("category", nextCategory);
-      if (nextStatus) params.set("status", nextStatus);
-      if (nextEmergency === "darurat") params.set("emergency", "1");
-      if (nextEmergency === "normal") params.set("emergency", "0");
-      const data = await apiFetch(`/reports?${params.toString()}`);
-      setReports(data.reports || []);
+      setLoading(true);
+      await Promise.all([loadStats(), loadUsers(), loadReports()]);
       setError("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Gagal memuat data laporan.");
+      setError(err instanceof Error ? err.message : "Gagal memuat dashboard admin.");
+    } finally {
+      setLoading(false);
     }
   }
 
   useEffect(() => {
-    loadStats();
-    loadReports();
+    bootstrap();
   }, []);
 
-  async function handleStatusChange(id: number, nextStatus: string) {
-    await apiFetch(`/reports/${id}/status`, {
+  function setDraft(id: number, patch: Partial<ReportDraft>) {
+    setReportDrafts((current) => ({
+      ...current,
+      [id]: {
+        status: current[id]?.status || "terkirim",
+        adminNote: current[id]?.adminNote || "",
+        assignedTo: current[id]?.assignedTo || "",
+        ...patch
+      }
+    }));
+  }
+
+  async function saveReport(reportId: number) {
+    const draft = reportDrafts[reportId];
+    if (!draft) return;
+
+    await apiFetch(`/reports/${reportId}/status`, {
       method: "PATCH",
-      body: JSON.stringify({ status: nextStatus })
+      body: JSON.stringify({
+        status: draft.status,
+        adminNote: draft.adminNote,
+        assignedTo: draft.assignedTo || null
+      })
     });
-    await Promise.all([loadReports(), loadStats()]);
+
+    await Promise.all([loadStats(), loadReports()]);
+  }
+
+  async function quickRespond(reportId: number, status: string) {
+    const existing = reportDrafts[reportId];
+    setDraft(reportId, { status });
+
+    await apiFetch(`/reports/${reportId}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        status,
+        adminNote: existing?.adminNote || "",
+        assignedTo: existing?.assignedTo || null
+      })
+    });
+
+    await Promise.all([loadStats(), loadReports()]);
   }
 
   async function handleDelete(id: number) {
     await apiFetch(`/reports/${id}`, { method: "DELETE" });
-    await Promise.all([loadReports(), loadStats()]);
+    await Promise.all([loadStats(), loadReports(), loadUsers()]);
   }
 
-  const activeEmergencyReports = useMemo(
-    () => reports.filter((report) => report.is_emergency === 1 && report.status !== "selesai"),
-    [reports]
-  );
+  async function updateUser(userId: number, payload: Record<string, string | boolean>) {
+    await apiFetch(`/admin/users/${userId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    });
+
+    await Promise.all([loadUsers(), loadStats()]);
+  }
+
+  const donutGradient = useMemo(() => buildDonutGradient(byCategory), [byCategory]);
 
   return (
-    <main className="container-app py-14">
-      <div className="grid gap-6 xl:grid-cols-[280px_1fr]">
-        <AdminSidebar />
-
-        <div className="space-y-6">
-          {showEmergencyPopup && activeEmergencyReports.length > 0 ? (
-            <div className="card border-red-200 bg-red-50 p-6">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-red-700">Notifikasi Darurat</p>
-                  <h2 className="mt-3 text-2xl font-black text-ink">
-                    Ada {activeEmergencyReports.length} laporan darurat yang belum selesai.
-                  </h2>
-                  <p className="mt-2 text-sm leading-6 text-red-700/90">
-                    Laporan darurat otomatis diprioritaskan nomor 1 dan muncul paling atas.
-                  </p>
-                </div>
-                <button
-                  onClick={() => setShowEmergencyPopup(false)}
-                  className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-red-700"
-                >
-                  Tutup
-                </button>
-              </div>
-            </div>
-          ) : null}
-
-          <div className="card p-8">
-            <span className="badge bg-brand-100 text-brand-700">Dashboard Admin</span>
-            <h1 className="mt-4 text-4xl font-black tracking-tight text-ink">Kontrol pusat pengaduan</h1>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-ink/70">
-              Pantau semua laporan, ubah status penanganan, hapus data yang tidak valid, dan lihat
-              tren kategori laporan terbanyak.
-            </p>
-          </div>
-
-          <StatsCards stats={stats} />
-
-          <div className="grid gap-4 xl:grid-cols-3">
-            <div className="card border-red-200 p-6">
-              <p className="text-sm text-red-700">Laporan Darurat</p>
-              <p className="mt-3 text-3xl font-black text-ink">{stats.total_darurat || 0}</p>
-            </div>
-            <div className="card border-red-200 p-6">
-              <p className="text-sm text-red-700">Darurat Aktif</p>
-              <p className="mt-3 text-3xl font-black text-ink">{stats.darurat_aktif || 0}</p>
-            </div>
-            <div className="card border-red-200 p-6">
-              <p className="text-sm text-red-700">Darurat Kritis</p>
-              <p className="mt-3 text-3xl font-black text-ink">{stats.darurat_kritis || 0}</p>
-            </div>
-          </div>
-
-          <SimpleBarChart title="Grafik Laporan Terbanyak" data={chart} />
-
-          {emergencyFeed.length > 0 ? (
-            <div className="card border-red-200 p-8">
-              <h2 className="text-2xl font-black text-ink">Prioritas Darurat</h2>
-              <div className="mt-6 grid gap-4">
-                {emergencyFeed.map((item) => (
-                  <div key={item.id} className="rounded-3xl bg-red-50 p-5">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="badge bg-red-500 text-white">URGENT</span>
-                      <span className={`badge ${getDangerBadge(item.danger_level)}`}>{item.danger_level || "sedang"}</span>
-                      <StatusBadge status={item.status} />
-                    </div>
-                    <h3 className="mt-4 text-lg font-bold text-ink">{item.location}</h3>
-                    <p className="mt-2 text-sm text-red-700/90">
-                      SLA berjalan: belum ditangani selama {formatElapsedMinutes(item.created_at)}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          <div className="card p-8">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+    <main className="mx-auto w-full max-w-[1600px] px-4 py-10 sm:px-6 lg:px-8 2xl:px-10">
+      <div className="space-y-6">
+        <section className="card overflow-hidden">
+          <div className="bg-hero-glow p-6 sm:p-8">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
               <div>
-                <h2 className="text-2xl font-black text-ink">Daftar semua laporan</h2>
-                <p className="mt-2 text-sm text-ink/70">
-                  Identitas pelapor disamarkan otomatis untuk laporan anonim. Laporan darurat selalu diprioritaskan.
+                <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-700">Dashboard</p>
+                <h1 className="mt-3 text-4xl font-black tracking-tight text-ink sm:text-5xl">Selamat datang kembali, Admin</h1>
+                <p className="mt-3 max-w-3xl text-sm leading-6 text-ink/65">
+                  Tampilan dashboard ini disusun ulang mengikuti pola panel operasional modern:
+                  ringkasan cepat di atas, analitik di tengah, dan laporan terbaru beserta notifikasi di bawah.
                 </p>
               </div>
+              <div className="grid w-full gap-3 sm:grid-cols-2 lg:w-[420px]">
+                <div className="rounded-3xl border border-white/70 bg-white/80 p-4">
+                  <p className="text-sm font-semibold text-ink/55">Darurat aktif</p>
+                  <p className="mt-2 text-3xl font-black text-red-600">{stats.darurat_aktif || 0}</p>
+                  <p className="mt-1 text-sm text-ink/50">Butuh respon segera</p>
+                </div>
+                <div className="rounded-3xl border border-white/70 bg-white/80 p-4">
+                  <p className="text-sm font-semibold text-ink/55">User terdaftar</p>
+                  <p className="mt-2 text-3xl font-black text-brand-700">{stats.total_user || 0}</p>
+                  <p className="mt-1 text-sm text-ink/50">Ekosistem pelapor aktif</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
 
-              <div className="grid gap-3 sm:grid-cols-3">
-                <select
-                  className="input"
-                  value={category}
-                  onChange={(event) => {
-                    setCategory(event.target.value);
-                    loadReports(event.target.value, status, emergencyFilter);
-                  }}
-                >
-                  <option value="">Semua kategori</option>
-                  {kategoriLaporan.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
+        {error ? <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
 
-                <select
-                  className="input"
-                  value={status}
-                  onChange={(event) => {
-                    setStatus(event.target.value);
-                    loadReports(category, event.target.value, emergencyFilter);
-                  }}
-                >
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <SummaryCard title="Total Laporan" value={Number(stats.total || 0)} note="Rekap keseluruhan laporan masuk" accent="bg-brand-100 text-brand-700" icon="L" />
+          <SummaryCard title="Laporan Hari Ini" value={Number(stats.hari_ini || 0)} note="Aktivitas laporan hari ini" accent="bg-emerald-100 text-emerald-700" icon="H" />
+          <SummaryCard title="Diproses" value={Number(stats.diproses || 0)} note="Sedang ditangani admin" accent="bg-amber-100 text-amber-700" icon="P" />
+          <SummaryCard title="Selesai" value={Number(stats.selesai || 0)} note="Laporan yang sudah beres" accent="bg-teal-100 text-teal-700" icon="S" />
+        </section>
+
+        <section className="grid gap-4 2xl:grid-cols-[1.6fr_1.1fr_1fr]">
+          <TrendChart data={weeklyTrend} />
+
+          <div className="card p-6">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-lg font-bold text-ink">Kategori Terbanyak</p>
+                <p className="mt-1 text-sm text-ink/55">Distribusi kategori laporan aktif</p>
+              </div>
+            </div>
+
+            <div className="mt-8 grid items-center gap-6 md:grid-cols-[220px_1fr]">
+              <div className="mx-auto flex h-[220px] w-[220px] items-center justify-center rounded-full" style={{ backgroundImage: donutGradient }}>
+                <div className="flex h-[112px] w-[112px] items-center justify-center rounded-full bg-paper text-center">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.18em] text-ink/45">Kategori</p>
+                    <p className="mt-2 text-3xl font-black text-ink">{byCategory.length}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {byCategory.slice(0, 6).map((item) => {
+                  const total = Math.max(
+                    byCategory.reduce((sum, current) => sum + current.total, 0),
+                    1
+                  );
+                  const percentage = Math.round((item.total / total) * 100);
+
+                  return (
+                    <div key={item.label} className="flex items-center justify-between gap-3 rounded-2xl bg-sand px-4 py-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold capitalize text-ink">{item.label}</p>
+                        <p className="text-xs text-ink/50">{item.total} laporan</p>
+                      </div>
+                      <span className="text-sm font-bold text-brand-700">{percentage}%</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          <div className="card border-red-200 p-6">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-lg font-bold text-red-700">Laporan Darurat Aktif</p>
+                <p className="mt-1 text-sm text-ink/55">Panel respons cepat untuk laporan SOS</p>
+              </div>
+            </div>
+
+            <div className="mt-6 space-y-4">
+              {emergencyFeed.slice(0, 4).map((item) => (
+                <div key={item.id} className="rounded-3xl border border-red-100 bg-red-50/80 p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex min-w-0 gap-3">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-red-500 text-sm font-black text-white">
+                        SOS
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-base font-bold text-ink">{item.emergency_type || item.category}</p>
+                        <p className="mt-1 text-sm text-ink/65">{item.location}</p>
+                        <p className="mt-1 text-xs text-ink/50">{formatShortTimeAgo(item.created_at)}</p>
+                      </div>
+                    </div>
+                    <StatusBadge status={item.status} />
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <span className={`badge ${getDangerTone(item.danger_level)}`}>{item.danger_level || "sedang"}</span>
+                    {item.needs_immediate_help ? <span className="badge bg-red-100 text-red-700">Butuh bantuan segera</span> : null}
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <button
+                      onClick={() => quickRespond(item.id, "diproses")}
+                      className="rounded-2xl bg-red-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-red-600"
+                    >
+                      Respon Sekarang
+                    </button>
+                    <button
+                      onClick={() => quickRespond(item.id, "selesai")}
+                      className="rounded-2xl border border-red-200 bg-white px-4 py-2.5 text-sm font-semibold text-red-700"
+                    >
+                      Tandai Selesai
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              {!loading && emergencyFeed.length === 0 ? (
+                <div className="rounded-3xl bg-sand p-8 text-center text-sm text-ink/55">Tidak ada laporan darurat aktif saat ini.</div>
+              ) : null}
+            </div>
+          </div>
+        </section>
+
+        <section className="grid gap-4 2xl:grid-cols-[1.8fr_0.9fr]">
+          <div className="card p-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-lg font-bold text-ink">Laporan Terbaru</p>
+                <p className="mt-1 text-sm text-ink/55">Tabel ringkas dengan filter inti untuk pengawasan cepat.</p>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <select className="input" value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}>
                   <option value="">Semua status</option>
                   {statusLaporan.map((item) => (
                     <option key={item} value={item}>
@@ -218,110 +610,293 @@ export default function AdminPage() {
                   ))}
                 </select>
 
-                <select
-                  className="input"
-                  value={emergencyFilter}
-                  onChange={(event) => {
-                    setEmergencyFilter(event.target.value);
-                    loadReports(category, status, event.target.value);
-                  }}
-                >
-                  <option value="semua">Semua laporan</option>
-                  <option value="darurat">Laporan darurat</option>
-                  <option value="normal">Laporan normal</option>
+                <select className="input" value={filters.category} onChange={(event) => setFilters((current) => ({ ...current, category: event.target.value }))}>
+                  <option value="">Semua kategori</option>
+                  {kategoriLaporan.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
                 </select>
+
+                <select className="input" value={filters.urgency} onChange={(event) => setFilters((current) => ({ ...current, urgency: event.target.value }))}>
+                  <option value="">Semua prioritas</option>
+                  {tingkatUrgensi.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+
+                <input
+                  className="input"
+                  placeholder="Cari laporan..."
+                  value={filters.search}
+                  onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))}
+                />
               </div>
             </div>
 
-            {error ? (
-              <div className="mt-6 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
-            ) : null}
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button onClick={() => loadReports(filters)} className="rounded-2xl bg-brand-600 px-5 py-3 text-sm font-semibold text-white">
+                Terapkan Filter
+              </button>
+              <button
+                onClick={() => {
+                  const resetFilters = {
+                    category: "",
+                    status: "",
+                    urgency: "",
+                    emergency: "semua",
+                    location: "",
+                    search: "",
+                    assignedTo: ""
+                  };
+                  setFilters(resetFilters);
+                  loadReports(resetFilters);
+                }}
+                className="rounded-2xl border border-ink/10 bg-white px-5 py-3 text-sm font-semibold text-ink"
+              >
+                Reset
+              </button>
+            </div>
 
-            <div className="mt-8 grid gap-4">
-              {reports.map((report) => (
-                <div
-                  key={report.id}
-                  className={`rounded-3xl border bg-white p-6 ${report.is_emergency ? "border-red-200" : "border-ink/8"}`}
-                >
-                  <div className="grid gap-6 xl:grid-cols-[1fr_220px]">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        {report.is_emergency ? <span className="badge bg-red-500 text-white">URGENT</span> : null}
-                        <span className="badge bg-ink/5 text-ink/70 capitalize">{report.category}</span>
-                        <span className="badge bg-brand-50 text-brand-700 capitalize">{report.urgency}</span>
-                        {report.is_emergency ? (
-                          <span className={`badge capitalize ${getDangerBadge(report.danger_level)}`}>
-                            {report.danger_level || "sedang"}
-                          </span>
-                        ) : null}
+            <div className="mt-6 overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-ink/10 text-ink/45">
+                    <th className="px-3 py-3">ID</th>
+                    <th className="px-3 py-3">Judul / Lokasi</th>
+                    <th className="px-3 py-3">Kategori</th>
+                    <th className="px-3 py-3">Pelapor</th>
+                    <th className="px-3 py-3">Status</th>
+                    <th className="px-3 py-3">Waktu</th>
+                    <th className="px-3 py-3">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {latestReports.map((report) => (
+                    <tr key={report.id} className="border-b border-ink/5 align-top">
+                      <td className="px-3 py-4 font-semibold text-ink">#LP-{report.id}</td>
+                      <td className="px-3 py-4">
+                        <p className="font-semibold text-ink">{report.location}</p>
+                        <p className="mt-1 text-xs text-ink/55">{report.detail_location || report.description.slice(0, 72)}</p>
+                      </td>
+                      <td className="px-3 py-4">
+                        <span className={`badge capitalize ${getCategoryTone(report.category)}`}>{report.category}</span>
+                      </td>
+                      <td className="px-3 py-4 text-ink/70">{report.reporter_name}</td>
+                      <td className="px-3 py-4">
                         <StatusBadge status={report.status} />
-                      </div>
-
-                      <h3 className="mt-4 text-xl font-bold text-ink">{report.location}</h3>
-                      <p className="mt-3 text-sm text-ink/60">Pelapor: {report.reporter_name}</p>
-                      {report.detail_location ? (
-                        <p className="mt-2 text-sm text-ink/60">Lokasi detail: {report.detail_location}</p>
-                      ) : null}
-                      {report.is_emergency ? (
-                        <div className="mt-3 space-y-1 text-sm text-red-700">
-                          <p>Jenis darurat: {report.emergency_type || "-"}</p>
-                          <p>Butuh bantuan segera: {report.needs_immediate_help ? "Ya" : "Tidak"}</p>
-                          <p>SLA: belum ditangani selama {formatElapsedMinutes(report.created_at)}</p>
-                        </div>
-                      ) : null}
-                      <p className="mt-3 text-sm leading-6 text-ink/70">{report.description}</p>
-
-                      <div className="mt-5 flex flex-wrap gap-3">
-                        <select
-                          className="input max-w-[220px]"
-                          value={report.status}
-                          onChange={(event) => handleStatusChange(report.id, event.target.value)}
-                        >
-                          {statusLaporan.map((item) => (
-                            <option key={item} value={item}>
-                              {item}
-                            </option>
-                          ))}
-                        </select>
-
+                      </td>
+                      <td className="px-3 py-4 text-ink/60">{formatShortTimeAgo(report.created_at)}</td>
+                      <td className="px-3 py-4">
                         <button
-                          onClick={() => handleDelete(report.id)}
-                          className="rounded-2xl bg-red-500 px-5 py-3 text-sm font-semibold text-white transition hover:bg-red-600"
+                          onClick={() => quickRespond(report.id, report.status === "diproses" ? "selesai" : "diproses")}
+                          className="rounded-2xl bg-brand-50 px-4 py-2 text-xs font-semibold text-brand-700"
                         >
-                          Hapus
+                          {report.status === "diproses" ? "Selesaikan" : "Proses"}
                         </button>
-                      </div>
-                    </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
-                    <div>
-                      {report.photo_url ? (
-                        <div className="overflow-hidden rounded-3xl border border-ink/5">
-                          <Image
-                            src={`${uploadsUrl}${report.photo_url}`}
-                            alt="Foto laporan"
-                            width={440}
-                            height={320}
-                            className="h-full w-full object-cover"
+          <div className="card p-6">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-lg font-bold text-ink">Notifikasi</p>
+                <p className="mt-1 text-sm text-ink/55">Ringkasan aktivitas yang perlu dilihat admin.</p>
+              </div>
+            </div>
+
+            <div className="mt-6 space-y-4">
+              {notificationItems.map((item) => (
+                <div key={`${item.title}-${item.time}`} className="flex items-start gap-4 rounded-3xl bg-sand p-4">
+                  <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-sm font-black ${item.tone}`}>{item.icon}</div>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-ink">{item.title}</p>
+                    <p className="mt-1 text-sm text-ink/65">{item.detail}</p>
+                    <p className="mt-1 text-xs text-ink/45">{item.time}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-6 rounded-3xl border border-ink/8 bg-paper p-4">
+              <p className="text-sm font-semibold text-ink">Heatmap & maps</p>
+              <p className="mt-2 text-sm leading-6 text-ink/60">
+                Belum ditambahkan di MVP ini, tetapi lokasi paling sering dilaporkan sudah tersedia dari data:
+              </p>
+              <div className="mt-4 space-y-2">
+                {byLocation.slice(0, 4).map((item) => (
+                  <div key={item.label} className="flex items-center justify-between rounded-2xl bg-sand px-4 py-3 text-sm">
+                    <span className="text-ink/70">{item.label}</span>
+                    <span className="font-semibold text-ink">{item.total}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="grid gap-4 2xl:grid-cols-[1.55fr_1fr]">
+          <div className="card p-6">
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="text-lg font-bold text-ink">Panel Operasional Laporan</p>
+                <p className="mt-1 text-sm text-ink/55">Fitur admin lengkap tetap tersedia di bawah tampilan dashboard utama.</p>
+              </div>
+            </div>
+
+            <div className="mt-6 space-y-4">
+              {reports.slice(0, 4).map((report) => {
+                const draft = reportDrafts[report.id];
+
+                return (
+                  <div key={report.id} className={`rounded-3xl border p-5 ${report.is_emergency ? "border-red-200 bg-red-50/60" : "border-ink/8 bg-white"}`}>
+                    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {report.is_emergency ? <span className="badge bg-red-500 text-white">SOS</span> : null}
+                          <span className={`badge capitalize ${getCategoryTone(report.category)}`}>{report.category}</span>
+                          <span className="badge bg-brand-50 text-brand-700 capitalize">{report.urgency}</span>
+                          <StatusBadge status={report.status} />
+                        </div>
+
+                        <h3 className="mt-4 text-xl font-bold text-ink">{report.location}</h3>
+                        <div className="mt-3 grid gap-2 text-sm text-ink/60 md:grid-cols-2">
+                          <p>Pelapor: {report.reporter_name}</p>
+                          <p>Dibuat: {formatDateTime(report.created_at)}</p>
+                          <p>Assigned: {report.assignee_name || "Belum ada"}</p>
+                          <p>Update: {formatDateTime(report.updated_at)}</p>
+                        </div>
+                        <p className="mt-4 text-sm leading-6 text-ink/70">{report.description}</p>
+
+                        <div className="mt-5 grid gap-3 md:grid-cols-2">
+                          <select className="input" value={draft?.status || report.status} onChange={(event) => setDraft(report.id, { status: event.target.value })}>
+                            {statusLaporan.map((item) => (
+                              <option key={item} value={item}>
+                                {item}
+                              </option>
+                            ))}
+                          </select>
+
+                          <select className="input" value={draft?.assignedTo || ""} onChange={(event) => setDraft(report.id, { assignedTo: event.target.value })}>
+                            <option value="">Belum di-assign</option>
+                            {responders.map((user) => (
+                              <option key={user.id} value={user.id}>
+                                {user.name} ({user.role})
+                              </option>
+                            ))}
+                          </select>
+
+                          <textarea
+                            className="input min-h-[110px] md:col-span-2"
+                            placeholder="Catatan admin atau alasan penolakan"
+                            value={draft?.adminNote || ""}
+                            onChange={(event) => setDraft(report.id, { adminNote: event.target.value })}
                           />
                         </div>
-                      ) : (
-                        <div className="flex h-full min-h-[180px] items-center justify-center rounded-3xl bg-sand text-sm text-ink/50">
-                          Tidak ada foto
+
+                        <div className="mt-4 flex flex-wrap gap-3">
+                          <button onClick={() => saveReport(report.id)} className="rounded-2xl bg-brand-600 px-5 py-3 text-sm font-semibold text-white">
+                            Simpan
+                          </button>
+                          <button onClick={() => handleDelete(report.id)} className="rounded-2xl bg-red-500 px-5 py-3 text-sm font-semibold text-white">
+                            Hapus
+                          </button>
                         </div>
-                      )}
+                      </div>
+
+                      <div className="space-y-4">
+                        {report.photo_url ? (
+                          <div className="overflow-hidden rounded-3xl border border-ink/5">
+                            <Image
+                              src={`${uploadsUrl}${report.photo_url}`}
+                              alt="Foto laporan"
+                              width={360}
+                              height={240}
+                              className="h-full w-full object-cover"
+                            />
+                          </div>
+                        ) : (
+                          <div className="flex min-h-[180px] items-center justify-center rounded-3xl bg-sand text-sm text-ink/50">Tidak ada foto</div>
+                        )}
+
+                        <div className="rounded-3xl border border-ink/8 bg-sand p-4">
+                          <p className="text-sm font-semibold text-ink">Statistik jam laporan</p>
+                          <div className="mt-3 space-y-2">
+                            {byHour.slice(0, 4).map((item) => (
+                              <div key={item.label} className="flex items-center justify-between rounded-2xl bg-white px-3 py-2 text-sm">
+                                <span className="text-ink/60">{item.label}.00</span>
+                                <span className="font-semibold text-ink">{item.total}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="card p-6">
+            <div>
+              <p className="text-lg font-bold text-ink">Manajemen User</p>
+              <p className="mt-1 text-sm text-ink/55">Role, verifikasi, dan suspend akun dikelola dari panel ini.</p>
+            </div>
+
+            <div className="mt-6 space-y-4">
+              {users.slice(0, 6).map((user) => (
+                <div key={user.id} className="rounded-3xl border border-ink/8 bg-white p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-ink">{user.name}</p>
+                      <p className="text-sm text-ink/55">{user.email}</p>
+                      <p className="mt-1 text-xs text-ink/45">Laporan: {user.total_reports} • Darurat: {user.emergency_reports}</p>
+                    </div>
+                    <span className="badge bg-brand-50 text-brand-700">{user.role}</span>
+                  </div>
+
+                  <div className="mt-4 grid gap-3">
+                    <select className="input" value={user.role} onChange={(event) => updateUser(user.id, { role: event.target.value })}>
+                      {rolePengguna.map((role) => (
+                        <option key={role} value={role}>
+                          {role}
+                        </option>
+                      ))}
+                    </select>
+
+                    <div className="flex flex-wrap gap-3">
+                      <button
+                        onClick={() => updateUser(user.id, { isVerified: !Boolean(user.is_verified) })}
+                        className={`rounded-2xl px-4 py-2.5 text-sm font-semibold ${
+                          user.is_verified ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+                        }`}
+                      >
+                        {user.is_verified ? "Terverifikasi" : "Belum verifikasi"}
+                      </button>
+                      <button
+                        onClick={() => updateUser(user.id, { isSuspended: !Boolean(user.is_suspended) })}
+                        className={`rounded-2xl px-4 py-2.5 text-sm font-semibold ${
+                          user.is_suspended ? "bg-red-100 text-red-700" : "bg-brand-100 text-brand-700"
+                        }`}
+                      >
+                        {user.is_suspended ? "Suspended" : "Aktif"}
+                      </button>
                     </div>
                   </div>
                 </div>
               ))}
-
-              {reports.length === 0 ? (
-                <div className="rounded-3xl border border-dashed border-ink/10 bg-sand p-10 text-center text-sm text-ink/60">
-                  Tidak ada laporan yang cocok dengan filter saat ini.
-                </div>
-              ) : null}
             </div>
           </div>
-        </div>
+        </section>
       </div>
     </main>
   );
