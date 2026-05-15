@@ -58,6 +58,9 @@ DB_PASSWORD=
 DB_NAME=ngadu_db
 NEXT_PUBLIC_API_URL=http://localhost:5000/api
 NEXT_PUBLIC_UPLOADS_URL=http://localhost:5000
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+RESEND_API_KEY=
+EMAIL_FROM=no-reply@example.com
 ```
 
 ## Menjalankan
@@ -105,3 +108,5 @@ di project ini sudah memakai launcher Node langsung, jadi tidak bergantung pada
 - Foto laporan disimpan di folder `uploads/`.
 - Jika laporan dikirim sebagai anonim, admin hanya melihat label `Anonim`.
 - User bisa login untuk melihat dashboard pribadi.
+- Jika `RESEND_API_KEY` dan `EMAIL_FROM` diisi, email verifikasi organisasi akan dikirim sungguhan.
+- Jika belum diisi, mode development tetap mengembalikan link verifikasi agar flow bisa dites manual.

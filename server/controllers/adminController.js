@@ -2,14 +2,16 @@ import { pool } from "../config/db.js";
 
 const allowedRoles = ["admin", "petugas", "user"];
 
-export async function getAdminUsers(_req, res) {
+export async function getAdminUsers(req, res) {
   try {
     const [rows] = await pool.query(
       `SELECT
         u.id,
+        u.organization_id,
         u.name,
         u.email,
         u.role,
+        u.role_label,
         u.default_anonymous,
         u.is_verified,
         u.is_suspended,
@@ -19,10 +21,12 @@ export async function getAdminUsers(_req, res) {
         MAX(r.created_at) AS last_report_at
       FROM users u
       LEFT JOIN reports r ON r.user_id = u.id
+      WHERE u.organization_id = ?
       GROUP BY u.id
       ORDER BY
         FIELD(u.role, 'admin', 'petugas', 'user'),
-        u.created_at DESC`
+        u.created_at DESC`,
+      [req.user.organizationId]
     );
 
     res.json({ users: rows });
@@ -34,7 +38,7 @@ export async function getAdminUsers(_req, res) {
 export async function updateAdminUser(req, res) {
   try {
     const { id } = req.params;
-    const { role, isSuspended, isVerified } = req.body;
+    const { role, roleLabel, isSuspended, isVerified } = req.body;
     const updates = [];
     const values = [];
 
@@ -44,6 +48,11 @@ export async function updateAdminUser(req, res) {
       }
       updates.push("role = ?");
       values.push(role);
+    }
+
+    if (roleLabel !== undefined) {
+      updates.push("role_label = ?");
+      values.push(String(roleLabel).trim() || null);
     }
 
     if (isSuspended !== undefined) {
@@ -61,7 +70,13 @@ export async function updateAdminUser(req, res) {
     }
 
     values.push(id);
-    await pool.query(`UPDATE users SET ${updates.join(", ")} WHERE id = ?`, values);
+    await pool.query(
+      `UPDATE users
+       SET ${updates.join(", ")}
+       WHERE id = ?
+         AND organization_id = ?`,
+      [...values, req.user.organizationId]
+    );
     res.json({ message: "Data user berhasil diperbarui." });
   } catch (error) {
     res.status(500).json({ message: "Gagal memperbarui user.", error: error.message });

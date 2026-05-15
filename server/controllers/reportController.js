@@ -1,5 +1,7 @@
 import { pool } from "../config/db.js";
 import { randomUUID } from "node:crypto";
+import { getCategoryByOrganizationType } from "../services/organizationService.js";
+import { getPlatformConfig } from "../../lib/platform-config.js";
 
 const emergencyCategoryMap = {
   perkelahian: "bullying",
@@ -35,10 +37,73 @@ function normalizePhoto(file) {
   return file ? `/uploads/${file.filename}` : null;
 }
 
+async function getAccessibleReport(reportId, user) {
+  const [rows] = await pool.query(
+    `SELECT id, user_id, assigned_to, organization_id
+     FROM reports
+     WHERE id = ?`,
+    [reportId]
+  );
+
+  const report = rows[0];
+  if (!report) return null;
+
+  const isAdmin = user?.role === "admin" && report.organization_id === user.organizationId;
+  const isOwner = user?.id && report.user_id === user.id;
+  const isAssignee = user?.id && report.assigned_to === user.id;
+
+  return isAdmin || isOwner || isAssignee ? report : false;
+}
+
+async function createNotification(connection, { userId, reportId = null, type, title, message }) {
+  if (!userId) return;
+
+  await connection.query(
+    `INSERT INTO notifications (user_id, report_id, type, title, message)
+     VALUES (?, ?, ?, ?, ?)`,
+    [userId, reportId, type, title, message]
+  );
+}
+
+async function notifyAdmins(connection, { reportId, type, title, message }) {
+  const [reports] = await connection.query("SELECT organization_id FROM reports WHERE id = ?", [reportId]);
+  const organizationId = reports[0]?.organization_id;
+
+  await connection.query(
+    `INSERT INTO notifications (user_id, report_id, type, title, message)
+     SELECT id, ?, ?, ?, ?
+     FROM users
+     WHERE role = 'admin'
+       AND organization_id = ?`,
+    [reportId, type, title, message, organizationId]
+  );
+}
+
+async function createStatusLog(connection, { reportId, fromStatus = null, toStatus, changedBy = null, note = null }) {
+  await connection.query(
+    `INSERT INTO report_status_logs (report_id, from_status, to_status, changed_by, note)
+     VALUES (?, ?, ?, ?, ?)`,
+    [reportId, fromStatus, toStatus, changedBy, note]
+  );
+}
+
+async function createInternalComment(connection, { reportId, userId = null, comment }) {
+  const trimmedComment = comment?.trim();
+  if (!trimmedComment) return;
+
+  await connection.query(
+    `INSERT INTO report_comments (report_id, user_id, comment, is_internal)
+     VALUES (?, ?, ?, 1)`,
+    [reportId, userId, trimmedComment]
+  );
+}
+
 export async function createReport(req, res) {
   try {
     const {
+      organizationId,
       category,
+      title,
       location,
       detailLocation,
       description,
@@ -51,6 +116,7 @@ export async function createReport(req, res) {
     } = req.body;
 
     const userId = req.user?.id || null;
+    const scopedOrganizationId = req.user?.organizationId || Number(organizationId || 0) || null;
     const photoUrl = normalizePhoto(req.file);
     let anonymous = String(isAnonymous) === "true" || isAnonymous === true;
     const emergency = String(isEmergency) === "true" || isEmergency === true;
@@ -63,6 +129,23 @@ export async function createReport(req, res) {
       ? description?.trim() || "Laporan darurat tanpa detail tambahan."
       : description;
     const editToken = randomUUID().replace(/-/g, "");
+
+    if (!scopedOrganizationId) {
+      return res.status(400).json({ message: "Instansi tujuan laporan wajib dipilih." });
+    }
+
+    const [organizations] = await pool.query(
+      "SELECT id, type, name FROM organizations WHERE id = ?",
+      [scopedOrganizationId]
+    );
+    const organization = organizations[0];
+    if (!organization) {
+      return res.status(400).json({ message: "Instansi tujuan tidak ditemukan." });
+    }
+
+    if (req.user?.organizationId && Number(req.user.organizationId) !== Number(scopedOrganizationId)) {
+      return res.status(403).json({ message: "Anda tidak dapat mengirim laporan ke instansi lain." });
+    }
 
     if (emergency) {
       if (!emergencyType || !location) {
@@ -78,35 +161,82 @@ export async function createReport(req, res) {
     }
 
     const resolvedDangerLevel = emergency ? dangerLevel || "tinggi" : null;
+    const resolvedCategoryRecord = await getCategoryByOrganizationType(organization.type, resolvedCategory);
+    const resolvedTitle = title?.trim() || location?.trim() || resolvedCategory;
 
-    const [result] = await pool.query(
-      `INSERT INTO reports
-      (user_id, category, edit_token, location, detail_location, description, photo_url, urgency, is_emergency, emergency_type, danger_level, needs_immediate_help, is_anonymous, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'terkirim')`,
-      [
-        userId,
-        resolvedCategory,
-        editToken,
-        location,
-        detailLocation || null,
-        resolvedDescription,
-        photoUrl,
-        resolvedUrgency,
-        emergency ? 1 : 0,
-        emergency ? emergencyType || null : null,
-        resolvedDangerLevel,
-        emergency ? (immediateHelp ? 1 : 0) : 0,
-        anonymous ? 1 : 0
-      ]
-    );
+    const connection = await pool.getConnection();
+    let reportId;
 
-    const [rows] = await pool.query("SELECT * FROM reports WHERE id = ?", [result.insertId]);
+    try {
+      await connection.beginTransaction();
+
+      const [result] = await connection.query(
+        `INSERT INTO reports
+        (user_id, organization_id, category, category_id, title, edit_token, location, detail_location, description, photo_url, urgency, is_emergency, emergency_type, danger_level, needs_immediate_help, is_anonymous, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'terkirim')`,
+        [
+          userId,
+          scopedOrganizationId,
+          resolvedCategory,
+          resolvedCategoryRecord?.id || null,
+          resolvedTitle,
+          editToken,
+          location,
+          detailLocation || null,
+          resolvedDescription,
+          photoUrl,
+          resolvedUrgency,
+          emergency ? 1 : 0,
+          emergency ? emergencyType || null : null,
+          resolvedDangerLevel,
+          emergency ? (immediateHelp ? 1 : 0) : 0,
+          anonymous ? 1 : 0
+        ]
+      );
+
+      reportId = result.insertId;
+
+      await createStatusLog(connection, {
+        reportId,
+        toStatus: "terkirim",
+        changedBy: userId,
+        note: emergency ? "Laporan darurat berhasil dibuat." : "Laporan berhasil dibuat."
+      });
+
+      if (userId) {
+        await createNotification(connection, {
+          userId,
+          reportId,
+          type: "report_created",
+          title: "Laporan berhasil dikirim",
+          message: `Laporan Anda untuk ${organization.name} di lokasi ${location} sudah diterima sistem.`
+        });
+      }
+
+      await notifyAdmins(connection, {
+        reportId,
+        type: emergency ? "emergency_alert" : "report_created",
+        title: emergency ? "Laporan darurat baru" : "Laporan baru masuk",
+        message: emergency
+          ? `Ada laporan darurat baru di ${organization.name} - ${location}.`
+          : `Ada laporan baru di ${organization.name} yang perlu ditinjau - ${location}.`
+      });
+
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+
+    const [rows] = await pool.query("SELECT * FROM reports WHERE id = ?", [reportId]);
     res.status(201).json({
       message: "Laporan berhasil dikirim.",
       report: rows[0],
       followup: emergency
         ? {
-            reportId: result.insertId,
+            reportId,
             editToken
           }
         : null
@@ -181,8 +311,8 @@ export async function getPublicStats(_req, res) {
 export async function getMyReports(req, res) {
   try {
     const { category, status, emergency } = req.query;
-    const filters = ["user_id = ?"];
-    const values = [req.user.id];
+    const filters = ["user_id = ?", "organization_id = ?"];
+    const values = [req.user.id, req.user.organizationId];
 
     if (category) {
       filters.push("category = ?");
@@ -199,7 +329,7 @@ export async function getMyReports(req, res) {
     }
 
     const [rows] = await pool.query(
-      `SELECT id, category, location, detail_location, description, photo_url, urgency, is_emergency, emergency_type, danger_level, needs_immediate_help, is_anonymous, status, created_at
+      `SELECT id, organization_id, category, category_id, title, location, detail_location, description, photo_url, urgency, is_emergency, emergency_type, danger_level, needs_immediate_help, is_anonymous, status, created_at
        FROM reports
        WHERE ${filters.join(" AND ")}
        ORDER BY is_emergency DESC, created_at DESC`,
@@ -215,8 +345,8 @@ export async function getMyReports(req, res) {
 export async function getAllReports(req, res) {
   try {
     const { category, status, emergency, urgency, location, search, assignedTo } = req.query;
-    const filters = ["1 = 1"];
-    const values = [];
+    const filters = ["r.organization_id = ?"];
+    const values = [req.user.organizationId];
 
     if (category) {
       filters.push("r.category = ?");
@@ -261,7 +391,10 @@ export async function getAllReports(req, res) {
     const [rows] = await pool.query(
       `SELECT
         r.id,
+        r.organization_id,
         r.category,
+        r.category_id,
+        r.title,
         r.location,
         r.detail_location,
         r.description,
@@ -300,6 +433,61 @@ export async function getAllReports(req, res) {
   }
 }
 
+export async function getReportActivity(req, res) {
+  try {
+    const reportId = Number(req.params.id);
+    const accessibleReport = await getAccessibleReport(reportId, req.user);
+
+    if (accessibleReport === null) {
+      return res.status(404).json({ message: "Laporan tidak ditemukan." });
+    }
+
+    if (accessibleReport === false) {
+      return res.status(403).json({ message: "Anda tidak memiliki akses ke laporan ini." });
+    }
+
+    const [statusLogs] = await pool.query(
+      `SELECT
+        l.id,
+        l.report_id,
+        l.from_status,
+        l.to_status,
+        l.note,
+        l.created_at,
+        u.id AS changed_by,
+        COALESCE(u.name, 'Sistem') AS changed_by_name,
+        u.role AS changed_by_role
+       FROM report_status_logs l
+       LEFT JOIN users u ON l.changed_by = u.id
+       WHERE l.report_id = ?
+       ORDER BY l.created_at DESC, l.id DESC`,
+      [reportId]
+    );
+
+    const [comments] = await pool.query(
+      `SELECT
+        c.id,
+        c.report_id,
+        c.comment,
+        c.is_internal,
+        c.created_at,
+        u.id AS user_id,
+        COALESCE(u.name, 'Sistem') AS user_name,
+        u.role AS user_role
+       FROM report_comments c
+       LEFT JOIN users u ON c.user_id = u.id
+       WHERE c.report_id = ?
+         AND (? = 'admin' OR c.is_internal = 0)
+       ORDER BY c.created_at DESC, c.id DESC`,
+      [reportId, req.user?.role || "user"]
+    );
+
+    res.json({ statusLogs, comments });
+  } catch (error) {
+    res.status(500).json({ message: "Gagal mengambil aktivitas laporan.", error: error.message });
+  }
+}
+
 export async function updateReportStatus(req, res) {
   try {
     const { id } = req.params;
@@ -310,21 +498,99 @@ export async function updateReportStatus(req, res) {
       return res.status(400).json({ message: "Status tidak valid." });
     }
 
-    let resolvedAssignee = null;
-    if (assignedTo !== undefined && assignedTo !== null && assignedTo !== "") {
-      const [users] = await pool.query("SELECT id FROM users WHERE id = ?", [assignedTo]);
-      if (users.length === 0) {
-        return res.status(400).json({ message: "Petugas yang dipilih tidak ditemukan." });
-      }
-      resolvedAssignee = Number(assignedTo);
+    const [[existingReport]] = await pool.query(
+      `SELECT id, user_id, location, status, admin_note, assigned_to, organization_id
+       FROM reports
+       WHERE id = ?
+         AND organization_id = ?`,
+      [id, req.user.organizationId]
+    );
+
+    if (!existingReport) {
+      return res.status(404).json({ message: "Laporan tidak ditemukan." });
     }
 
-    await pool.query("UPDATE reports SET status = ?, admin_note = ?, assigned_to = ? WHERE id = ?", [
-      status,
-      adminNote?.trim() || null,
-      resolvedAssignee,
-      id
-    ]);
+    let resolvedAssignee = existingReport.assigned_to;
+    if (assignedTo !== undefined) {
+      if (assignedTo === null || assignedTo === "") {
+        resolvedAssignee = null;
+      } else {
+        const [users] = await pool.query(
+          "SELECT id FROM users WHERE id = ? AND organization_id = ?",
+          [assignedTo, req.user.organizationId]
+        );
+        if (users.length === 0) {
+          return res.status(400).json({ message: "Petugas yang dipilih tidak ditemukan." });
+        }
+        resolvedAssignee = Number(assignedTo);
+      }
+    }
+
+    const nextAdminNote = typeof adminNote === "string" ? adminNote.trim() || null : existingReport.admin_note;
+    const previousAdminNote = typeof existingReport.admin_note === "string" ? existingReport.admin_note.trim() : existingReport.admin_note;
+    const statusChanged = existingReport.status !== status;
+    const assigneeChanged = existingReport.assigned_to !== resolvedAssignee;
+    const noteChanged = previousAdminNote !== nextAdminNote;
+
+    const connection = await pool.getConnection();
+
+    try {
+      await connection.beginTransaction();
+
+      await connection.query("UPDATE reports SET status = ?, admin_note = ?, assigned_to = ? WHERE id = ? AND organization_id = ?", [
+        status,
+        nextAdminNote,
+        resolvedAssignee,
+        id,
+        req.user.organizationId
+      ]);
+
+      if (statusChanged) {
+        await createStatusLog(connection, {
+          reportId: Number(id),
+          fromStatus: existingReport.status,
+          toStatus: status,
+          changedBy: req.user?.id || null,
+          note: nextAdminNote
+        });
+      }
+
+      if (noteChanged && nextAdminNote) {
+        await createInternalComment(connection, {
+          reportId: Number(id),
+          userId: req.user?.id || null,
+          comment: nextAdminNote
+        });
+      }
+
+      if (statusChanged && existingReport.user_id) {
+        await createNotification(connection, {
+          userId: existingReport.user_id,
+          reportId: Number(id),
+          type: "report_status_changed",
+          title: "Status laporan diperbarui",
+          message: `Laporan Anda di ${existingReport.location} sekarang berstatus ${status}.`
+        });
+      }
+
+      if (assigneeChanged && resolvedAssignee) {
+        await createNotification(connection, {
+          userId: resolvedAssignee,
+          reportId: Number(id),
+          type: "report_assigned",
+          title: "Laporan baru ditugaskan",
+          message: `Anda ditugaskan menangani laporan di ${existingReport.location}.`
+        });
+      }
+
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+
     res.json({ message: "Status laporan berhasil diperbarui." });
   } catch (error) {
     res.status(500).json({ message: "Gagal memperbarui status.", error: error.message });
@@ -334,14 +600,14 @@ export async function updateReportStatus(req, res) {
 export async function deleteReport(req, res) {
   try {
     const { id } = req.params;
-    await pool.query("DELETE FROM reports WHERE id = ?", [id]);
+    await pool.query("DELETE FROM reports WHERE id = ? AND organization_id = ?", [id, req.user.organizationId]);
     res.json({ message: "Laporan berhasil dihapus." });
   } catch (error) {
     res.status(500).json({ message: "Gagal menghapus laporan.", error: error.message });
   }
 }
 
-export async function getAdminStats(_req, res) {
+export async function getAdminStats(req, res) {
   try {
     const [[summary]] = await pool.query(
       `SELECT
@@ -355,7 +621,9 @@ export async function getAdminStats(_req, res) {
         SUM(is_emergency = 1) AS total_darurat,
         SUM(is_emergency = 1 AND status <> 'selesai') AS darurat_aktif,
         SUM(danger_level = 'kritis') AS darurat_kritis
-      FROM reports`
+      FROM reports
+      WHERE organization_id = ?`,
+      [req.user.organizationId]
     );
 
     const [[userStats]] = await pool.query(
@@ -366,63 +634,85 @@ export async function getAdminStats(_req, res) {
         SUM(role = 'user') AS total_user_biasa,
         SUM(is_suspended = 1) AS user_suspend,
         SUM(is_verified = 1) AS user_terverifikasi
-      FROM users`
+      FROM users
+      WHERE organization_id = ?`,
+      [req.user.organizationId]
     );
 
     const [byCategory] = await pool.query(
       `SELECT category, COUNT(*) AS total
        FROM reports
+       WHERE organization_id = ?
        GROUP BY category
        ORDER BY total DESC
-       LIMIT 6`
+       LIMIT 6`,
+      [req.user.organizationId]
     );
 
     const [byLocation] = await pool.query(
       `SELECT location AS label, COUNT(*) AS total
        FROM reports
+       WHERE organization_id = ?
        GROUP BY location
        ORDER BY total DESC
-       LIMIT 5`
+       LIMIT 5`,
+      [req.user.organizationId]
     );
 
     const [byHour] = await pool.query(
-      `SELECT LPAD(HOUR(created_at), 2, '0') AS label, COUNT(*) AS total
-       FROM reports
-       GROUP BY HOUR(created_at)
-       ORDER BY HOUR(created_at)`
+      `SELECT LPAD(hour_slot, 2, '0') AS label, COUNT(*) AS total
+       FROM (
+         SELECT HOUR(created_at) AS hour_slot
+         FROM reports
+         WHERE organization_id = ?
+       ) hourly_reports
+       GROUP BY hour_slot
+       ORDER BY hour_slot`,
+      [req.user.organizationId]
     );
 
     const [weeklyTrend] = await pool.query(
-      `SELECT DATE_FORMAT(created_at, '%d %b') AS label, COUNT(*) AS total
-       FROM reports
-       WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
-       GROUP BY DATE(created_at)
-       ORDER BY DATE(created_at)`
+      `SELECT DATE_FORMAT(report_day, '%d %b') AS label, COUNT(*) AS total
+       FROM (
+         SELECT DATE(created_at) AS report_day
+         FROM reports
+         WHERE organization_id = ?
+           AND created_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
+       ) daily_reports
+       GROUP BY report_day
+       ORDER BY report_day`,
+      [req.user.organizationId]
     );
 
     const [monthlyTrend] = await pool.query(
-      `SELECT DATE_FORMAT(created_at, '%b %Y') AS label, COUNT(*) AS total
+      `SELECT DATE_FORMAT(MIN(created_at), '%b %Y') AS label, COUNT(*) AS total
        FROM reports
-       WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 5 MONTH)
+       WHERE organization_id = ?
+         AND created_at >= DATE_SUB(CURDATE(), INTERVAL 5 MONTH)
        GROUP BY YEAR(created_at), MONTH(created_at)
-       ORDER BY YEAR(created_at), MONTH(created_at)`
+       ORDER BY YEAR(created_at), MONTH(created_at)`,
+      [req.user.organizationId]
     );
 
     const [statusBreakdown] = await pool.query(
       `SELECT status AS label, COUNT(*) AS total
        FROM reports
-       GROUP BY status`
+       WHERE organization_id = ?
+       GROUP BY status`,
+      [req.user.organizationId]
     );
 
     const [emergencyFeed] = await pool.query(
-      `SELECT id, location, detail_location, category, danger_level, emergency_type, needs_immediate_help, created_at, status
+      `SELECT id, organization_id, location, detail_location, category, danger_level, emergency_type, needs_immediate_help, created_at, status
        FROM reports
        WHERE is_emergency = 1
+         AND organization_id = ?
          AND status <> 'selesai'
        ORDER BY
          FIELD(danger_level, 'kritis', 'tinggi', 'sedang') DESC,
          created_at DESC
-       LIMIT 5`
+       LIMIT 5`,
+      [req.user.organizationId]
     );
 
     const notifications = {

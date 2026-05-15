@@ -272,6 +272,10 @@ export default function AdminPage() {
   const [emergencyFeed, setEmergencyFeed] = useState<AdminReport[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
+  const [savingReportId, setSavingReportId] = useState<number | null>(null);
+  const [recentlySavedReportId, setRecentlySavedReportId] = useState<number | null>(null);
+  const [hiddenSavedReportIds, setHiddenSavedReportIds] = useState<number[]>([]);
   const [filters, setFilters] = useState<FilterState>({
     category: "",
     status: "",
@@ -289,6 +293,13 @@ export default function AdminPage() {
   );
 
   const latestReports = useMemo(() => reports.slice(0, 5), [reports]);
+  const operationalReports = useMemo(
+    () =>
+      reports
+        .filter((report) => report.status === "terkirim" && !hiddenSavedReportIds.includes(report.id))
+        .slice(0, 4),
+    [reports, hiddenSavedReportIds]
+  );
 
   const notificationItems = useMemo(() => {
     const items = [];
@@ -370,6 +381,7 @@ export default function AdminPage() {
     const data = await apiFetch(`/reports${query ? `?${query}` : ""}`);
     const nextReports = data.reports || [];
     setReports(nextReports);
+    setHiddenSavedReportIds([]);
     setReportDrafts(
       nextReports.reduce((acc: Record<number, ReportDraft>, report: AdminReport) => {
         acc[report.id] = {
@@ -413,17 +425,31 @@ export default function AdminPage() {
   async function saveReport(reportId: number) {
     const draft = reportDrafts[reportId];
     if (!draft) return;
+    setSavingReportId(reportId);
+    setActionMessage("");
 
-    await apiFetch(`/reports/${reportId}/status`, {
-      method: "PATCH",
-      body: JSON.stringify({
-        status: draft.status,
-        adminNote: draft.adminNote,
-        assignedTo: draft.assignedTo || null
-      })
-    });
+    try {
+      await apiFetch(`/reports/${reportId}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          status: draft.status,
+          adminNote: draft.adminNote,
+          assignedTo: draft.assignedTo || null
+        })
+      });
 
-    await Promise.all([loadStats(), loadReports()]);
+      await Promise.all([loadStats(), loadReports()]);
+      setActionMessage(`Laporan #LP-${reportId} berhasil disimpan.`);
+      setRecentlySavedReportId(reportId);
+      setHiddenSavedReportIds((current) => (current.includes(reportId) ? current : [...current, reportId]));
+      setTimeout(() => {
+        setRecentlySavedReportId((current) => (current === reportId ? null : current));
+      }, 3000);
+    } catch (err) {
+      setActionMessage(err instanceof Error ? err.message : "Gagal menyimpan perubahan laporan.");
+    } finally {
+      setSavingReportId(null);
+    }
   }
 
   async function quickRespond(reportId: number, status: string) {
@@ -489,6 +515,7 @@ export default function AdminPage() {
         </section>
 
         {error ? <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
+        {actionMessage ? <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{actionMessage}</div> : null}
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <SummaryCard title="Total Laporan" value={Number(stats.total || 0)} note="Rekap keseluruhan laporan masuk" accent="bg-brand-100 text-brand-700" icon="L" />
@@ -753,11 +780,20 @@ export default function AdminPage() {
             </div>
 
             <div className="mt-6 space-y-4">
-              {reports.slice(0, 4).map((report) => {
+              {operationalReports.map((report) => {
                 const draft = reportDrafts[report.id];
 
                 return (
-                  <div key={report.id} className={`rounded-3xl border p-5 ${report.is_emergency ? "border-red-200 bg-red-50/60" : "border-ink/8 bg-white"}`}>
+                  <div
+                    key={report.id}
+                    className={`rounded-3xl border p-5 transition ${
+                      recentlySavedReportId === report.id
+                        ? "border-emerald-300 bg-emerald-50/60 shadow-[0_0_0_1px_rgba(16,185,129,0.18)]"
+                        : report.is_emergency
+                          ? "border-red-200 bg-red-50/60"
+                          : "border-ink/8 bg-white"
+                    }`}
+                  >
                     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
@@ -765,6 +801,7 @@ export default function AdminPage() {
                           <span className={`badge capitalize ${getCategoryTone(report.category)}`}>{report.category}</span>
                           <span className="badge bg-brand-50 text-brand-700 capitalize">{report.urgency}</span>
                           <StatusBadge status={report.status} />
+                          {recentlySavedReportId === report.id ? <span className="badge bg-emerald-100 text-emerald-700">Tersimpan</span> : null}
                         </div>
 
                         <h3 className="mt-4 text-xl font-bold text-ink">{report.location}</h3>
@@ -803,8 +840,12 @@ export default function AdminPage() {
                         </div>
 
                         <div className="mt-4 flex flex-wrap gap-3">
-                          <button onClick={() => saveReport(report.id)} className="rounded-2xl bg-brand-600 px-5 py-3 text-sm font-semibold text-white">
-                            Simpan
+                          <button
+                            onClick={() => saveReport(report.id)}
+                            disabled={savingReportId === report.id}
+                            className="rounded-2xl bg-brand-600 px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {savingReportId === report.id ? "Menyimpan..." : "Simpan"}
                           </button>
                           <button onClick={() => handleDelete(report.id)} className="rounded-2xl bg-red-500 px-5 py-3 text-sm font-semibold text-white">
                             Hapus
@@ -843,6 +884,12 @@ export default function AdminPage() {
                   </div>
                 );
               })}
+
+              {!loading && operationalReports.length === 0 ? (
+                <div className="rounded-3xl bg-sand p-8 text-center text-sm text-ink/55">
+                  Tidak ada laporan baru yang masih menunggu tindakan di panel ini. Anda bisa lanjut dari tabel ringkasan atau halaman kelola laporan.
+                </div>
+              ) : null}
             </div>
           </div>
 

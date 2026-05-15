@@ -6,7 +6,7 @@ import { CategoryGrid } from "@/components/CategoryGrid";
 import { SectionTitle } from "@/components/SectionTitle";
 import { StatsCards } from "@/components/StatsCards";
 import { apiFetch } from "@/lib/api";
-import { contohFasilitas } from "@/lib/constants";
+import { organizationTypeOptions } from "@/lib/platform-config";
 
 export default function HomePage() {
   const [stats, setStats] = useState({});
@@ -22,27 +22,27 @@ export default function HomePage() {
       <section className="bg-hero-glow">
         <div className="container-app grid min-h-[78vh] items-center gap-10 py-16 lg:grid-cols-[1.15fr_0.85fr] lg:py-24">
           <div>
-            <span className="badge bg-brand-100 text-brand-700">Pelaporan Aman dan Anonim</span>
-            <h1 className="mt-6 max-w-3xl text-5xl font-black tracking-tight text-ink sm:text-6xl">
-              Laporkan masalah tanpa takut identitas Anda diketahui.
+            <span className="badge bg-brand-100 text-brand-700">Multi Workspace Reporting Platform</span>
+            <h1 className="mt-6 max-w-4xl text-5xl font-black tracking-tight text-ink sm:text-6xl">
+              Satu sistem pengaduan untuk sekolah, kampus, kost, kantor, dan lingkungan warga.
             </h1>
-            <p className="mt-6 max-w-2xl text-lg leading-8 text-ink/70">
-              NgaduAja memudahkan sekolah, kampus, dan lingkungan masyarakat menerima pengaduan
-              secara cepat, terdokumentasi, dan tetap menjaga anonimitas pelapor.
+            <p className="mt-6 max-w-3xl text-lg leading-8 text-ink/70">
+              Admin membuat instansi terlebih dahulu, memilih jenis platform, lalu kategori laporan,
+              role label, dashboard, dan alur pelaporan otomatis menyesuaikan tanpa perlu codebase terpisah.
             </p>
             <div className="mt-8 flex flex-wrap gap-4">
-              <Link href="/lapor" className="btn-primary">
-                Buat Laporan
+              <Link href="/masuk" className="btn-primary">
+                Masuk
               </Link>
-              <Link href="/masuk" className="btn-secondary">
-                Login
+              <Link href="/daftar-instansi" className="btn-secondary">
+                Daftar Instansi
               </Link>
             </div>
 
             <div className="mt-10 flex flex-wrap gap-3">
-              {contohFasilitas.map((item) => (
-                <span key={item} className="badge bg-white text-ink/70 shadow-sm">
-                  {item}
+              {organizationTypeOptions.map((item) => (
+                <span key={item.value} className="badge bg-white text-ink/70 shadow-sm">
+                  {item.label}
                 </span>
               ))}
             </div>
@@ -50,22 +50,22 @@ export default function HomePage() {
 
           <div className="card overflow-hidden p-6 sm:p-8">
             <div className="rounded-[2rem] bg-brand-500 p-6 text-white">
-              <p className="text-sm uppercase tracking-[0.2em] text-white/70">Sistem Anonim</p>
-              <h2 className="mt-4 text-3xl font-black">Laporan fokus pada masalah, bukan identitas.</h2>
+              <p className="text-sm uppercase tracking-[0.2em] text-white/70">Konsep Workspace</p>
+              <h2 className="mt-4 text-3xl font-black">Jenis instansi menentukan kategori, role, menu, dan statistik.</h2>
               <ul className="mt-6 space-y-4 text-sm text-white/80">
-                <li>Admin hanya melihat data anonim untuk laporan yang ditandai anonim.</li>
-                <li>Status laporan transparan: terkirim, diproses, selesai.</li>
-                <li>Unggah foto pendukung untuk mempercepat penanganan.</li>
+                <li>Sekolah: bullying, fasilitas, kehilangan barang, pelanggaran siswa.</li>
+                <li>Kampus: akademik, organisasi, fasilitas, keamanan kampus.</li>
+                <li>Kost dan masyarakat: fokus pada operasional lapangan dan respons cepat.</li>
               </ul>
             </div>
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
               <div className="rounded-3xl bg-brand-50 p-5">
-                <p className="text-sm text-brand-700">Responsif</p>
-                <p className="mt-2 text-xl font-bold text-ink">Mobile Friendly</p>
+                <p className="text-sm text-brand-700">Dynamic UI</p>
+                <p className="mt-2 text-xl font-bold text-ink">Config Driven</p>
               </div>
               <div className="rounded-3xl bg-ink p-5 text-white">
-                <p className="text-sm text-white/70">Modern</p>
-                <p className="mt-2 text-xl font-bold text-white">Clean Card Layout</p>
+                <p className="text-sm text-white/70">Emergency Ready</p>
+                <p className="mt-2 text-xl font-bold text-white">SOS + Follow Up</p>
               </div>
             </div>
           </div>
@@ -78,42 +78,12 @@ export default function HomePage() {
 
       <section id="kategori" className="container-app py-16">
         <SectionTitle
-          label="Tentang Aplikasi"
-          title="Dirancang untuk pelaporan yang cepat, aman, dan mudah dipahami."
-          description="Aplikasi ini cocok dipakai oleh institusi pendidikan dan komunitas karena proses pelaporan sederhana, status bisa dipantau, dan admin dapat memprioritaskan masalah berdasarkan urgensi."
-        />
-
-        <div className="mt-10 grid gap-4 lg:grid-cols-3">
-          {[
-            {
-              title: "Anonim Secara Default",
-              desc: "Pelapor dapat memilih mode anonim sehingga identitas tidak tampil di panel admin."
-            },
-            {
-              title: "Terlacak dan Terukur",
-              desc: "Setiap laporan memiliki kategori, urgensi, status, dan statistik untuk evaluasi layanan."
-            },
-            {
-              title: "Siap untuk Operasional",
-              desc: "Backend Express dan MySQL memudahkan pengelolaan data serta integrasi lanjutan."
-            }
-          ].map((item) => (
-            <div key={item.title} className="card p-6">
-              <h3 className="text-xl font-bold text-ink">{item.title}</h3>
-              <p className="mt-3 text-sm leading-6 text-ink/65">{item.desc}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="container-app py-16">
-        <SectionTitle
-          label="Kategori Laporan"
-          title="Semua jenis pengaduan umum sudah disiapkan dalam sistem."
-          description="Kategori membantu admin menyaring isu dan memprioritaskan tindak lanjut berdasarkan konteks laporan."
+          label="Mode Platform"
+          title="Kategori dan alur bisa berganti otomatis sesuai instansi."
+          description="Contoh di bawah memakai preset sekolah. Saat user masuk ke instansi lain, kategori, role label, dan copywriting UI akan berubah mengikuti tipenya."
         />
         <div className="mt-10">
-          <CategoryGrid />
+          <CategoryGrid organizationType="school" />
         </div>
       </section>
     </main>

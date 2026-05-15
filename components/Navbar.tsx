@@ -4,37 +4,58 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { clearAuth, getUser } from "@/lib/api";
 import { useEffect, useState } from "react";
+import { getPlatformConfig } from "@/lib/platform-config";
 
 type NavItem = {
   href: string;
   label: string;
 };
 
-function getNavItems(pathname: string, role?: string): NavItem[] {
-  if (role === "admin") {
+type SessionUser = {
+  name: string;
+  role: string;
+  roleLabel?: string;
+  organization?: {
+    name?: string;
+    type?: string;
+  } | null;
+};
+
+function getNavItems(pathname: string, user?: SessionUser | null): NavItem[] {
+  const config = getPlatformConfig(user?.organization?.type || "custom");
+
+  if (user?.role === "super_admin") {
+    return [{ href: "/super-admin", label: "Super Admin" }];
+  }
+
+  if (user?.role === "admin") {
     return [
-      { href: "/admin", label: "Dashboard Admin" },
+      { href: "/admin", label: config.dashboardLabel },
       { href: "/admin/laporan", label: "Kelola Laporan" }
     ];
   }
 
-  if (role === "user") {
+  if (user?.role === "user" || user?.role === "petugas") {
     return [
-      { href: "/dashboard", label: "Dashboard User" },
-      { href: "/lapor", label: "Buat Laporan" },
+      { href: "/dashboard", label: "Dashboard Saya" },
+      { href: "/lapor", label: config.reportLabel },
       { href: "/profil", label: "Profil" }
     ];
   }
 
   if (pathname.startsWith("/admin")) {
     return [
+      { href: "/", label: "Beranda" },
       { href: "/#kategori", label: "Kategori" },
+      { href: "/daftar-instansi", label: "Daftar Instansi" },
       { href: "/lapor", label: "Kirim Aduan" }
     ];
   }
 
   return [
+    { href: "/", label: "Beranda" },
     { href: "/#tentang", label: "Tentang" },
+    { href: "/daftar-instansi", label: "Daftar Instansi" },
     { href: "/#kategori", label: "Kategori" },
     { href: "/lapor", label: "Kirim Aduan" }
   ];
@@ -42,14 +63,21 @@ function getNavItems(pathname: string, role?: string): NavItem[] {
 
 export function Navbar() {
   const pathname = usePathname();
-  const [user, setUser] = useState<{ name: string; role: string } | null>(null);
+  const [user, setUser] = useState<SessionUser | null>(null);
 
   useEffect(() => {
     setUser(getUser());
   }, []);
 
-  const navItems = getNavItems(pathname, user?.role);
-  const homeHref = user?.role === "admin" ? "/admin" : user?.role === "user" ? "/dashboard" : "/";
+  const navItems = getNavItems(pathname, user);
+  const homeHref =
+    user?.role === "super_admin"
+      ? "/super-admin"
+      : user?.role === "admin"
+        ? "/admin"
+        : user?.role === "user" || user?.role === "petugas"
+          ? "/dashboard"
+          : "/";
 
   return (
     <header className="sticky top-0 z-40 border-b border-ink/5 bg-sand/80 backdrop-blur">
@@ -80,7 +108,8 @@ export function Navbar() {
           {user ? (
             <>
               <span className="hidden text-sm text-ink/70 sm:inline">
-                {user.name} · {user.role}
+                {user.organization?.name ? `${user.organization.name} · ` : ""}
+                {user.name} · {user.roleLabel || user.role}
               </span>
               <button
                 onClick={() => {
@@ -96,6 +125,9 @@ export function Navbar() {
             <>
               <Link href="/masuk" className="btn-secondary">
                 Masuk
+              </Link>
+              <Link href="/daftar-instansi" className="btn-secondary hidden sm:inline-flex">
+                Daftar Instansi
               </Link>
               <Link href="/lapor" className="btn-primary hidden sm:inline-flex">
                 Buat Laporan

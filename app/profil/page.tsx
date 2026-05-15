@@ -8,6 +8,8 @@ type ProfileUser = {
   name?: string;
   email?: string;
   role?: string;
+  roleLabel?: string;
+  organization?: { name?: string; type?: string } | null;
   defaultAnonymous?: boolean;
 };
 
@@ -99,7 +101,12 @@ export default function ProfilePage() {
 
             <div className="rounded-3xl border border-ink/8 bg-white p-6">
               <p className="text-xs uppercase tracking-[0.18em] text-ink/45">Role</p>
-              <p className="mt-3 text-xl font-bold capitalize text-ink">{user?.role || "user"}</p>
+              <p className="mt-3 text-xl font-bold capitalize text-ink">{user?.roleLabel || user?.role || "user"}</p>
+            </div>
+
+            <div className="rounded-3xl border border-ink/8 bg-white p-6">
+              <p className="text-xs uppercase tracking-[0.18em] text-ink/45">Instansi</p>
+              <p className="mt-3 text-xl font-bold text-ink">{user?.organization?.name || "-"}</p>
             </div>
           </div>
         </section>
