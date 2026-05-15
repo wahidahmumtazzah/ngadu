@@ -1,6 +1,7 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
+  darkMode: "class",
   content: [
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
@@ -21,9 +22,9 @@ const config: Config = {
           800: "#234273",
           900: "#23395f"
         },
-        ink: "#2d2d2d",
-        sand: "#f4f3f1",
-        paper: "#fbfaf8"
+        ink: "rgb(var(--color-ink) / <alpha-value>)",
+        sand: "rgb(var(--color-sand) / <alpha-value>)",
+        paper: "rgb(var(--color-paper) / <alpha-value>)"
       },
       boxShadow: {
         soft: "0 18px 50px rgba(45, 45, 45, 0.1)"

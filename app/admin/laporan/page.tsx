@@ -55,7 +55,6 @@ type FilterState = {
   category: string;
   status: string;
   urgency: string;
-  emergency: string;
   location: string;
   search: string;
   assignedTo: string;
@@ -76,12 +75,6 @@ function formatShortTimeAgo(value: string) {
   if (hours < 24) return `${hours} jam lalu`;
   const days = Math.floor(hours / 24);
   return `${days} hari lalu`;
-}
-
-function getDangerTone(level: string | null) {
-  if (level === "kritis") return "bg-red-100 text-red-700";
-  if (level === "tinggi") return "bg-orange-100 text-orange-700";
-  return "bg-amber-100 text-amber-700";
 }
 
 function getCategoryTone(category: string) {
@@ -120,7 +113,6 @@ export default function AdminReportsPage() {
     category: "",
     status: "",
     urgency: "",
-    emergency: "semua",
     location: "",
     search: "",
     assignedTo: ""
@@ -132,7 +124,6 @@ export default function AdminReportsPage() {
     [users]
   );
 
-  const activeEmergencies = useMemo(() => reports.filter((report) => report.is_emergency && report.status !== "selesai"), [reports]);
   const operationalReports = useMemo(
     () => reports.filter((report) => report.status === "terkirim" && !hiddenSavedReportIds.includes(report.id)),
     [reports, hiddenSavedReportIds]
@@ -151,9 +142,6 @@ export default function AdminReportsPage() {
     if (nextFilters.location) params.set("location", nextFilters.location);
     if (nextFilters.search) params.set("search", nextFilters.search);
     if (nextFilters.assignedTo) params.set("assignedTo", nextFilters.assignedTo);
-    if (nextFilters.emergency === "darurat") params.set("emergency", "1");
-    if (nextFilters.emergency === "normal") params.set("emergency", "0");
-
     const query = params.toString();
     const data = await apiFetch(`/reports${query ? `?${query}` : ""}`);
     const nextReports = data.reports || [];
@@ -294,20 +282,14 @@ export default function AdminReportsPage() {
                 <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-700">Admin</p>
                 <h1 className="mt-3 text-4xl font-black tracking-tight text-ink sm:text-5xl">Kelola Laporan</h1>
                 <p className="mt-3 max-w-3xl text-sm leading-6 text-ink/65">
-                  Halaman ini menampilkan seluruh laporan yang masuk, termasuk filter, status penanganan, assign petugas, dan respons cepat
-                  untuk laporan darurat.
+                  Halaman ini menampilkan seluruh laporan yang masuk, termasuk filter, status penanganan, assign petugas, dan balasan admin.
                 </p>
               </div>
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <div className="rounded-3xl border border-white/70 bg-white/80 p-4">
                   <p className="text-sm font-semibold text-ink/55">Total laporan</p>
                   <p className="mt-2 text-3xl font-black text-brand-700">{reports.length}</p>
                   <p className="mt-1 text-sm text-ink/50">Sesuai filter aktif</p>
-                </div>
-                <div className="rounded-3xl border border-white/70 bg-white/80 p-4">
-                  <p className="text-sm font-semibold text-ink/55">Darurat aktif</p>
-                  <p className="mt-2 text-3xl font-black text-red-600">{activeEmergencies.length}</p>
-                  <p className="mt-1 text-sm text-ink/50">Perlu respon cepat</p>
                 </div>
                 <div className="rounded-3xl border border-white/70 bg-white/80 p-4">
                   <p className="text-sm font-semibold text-ink/55">Petugas tersedia</p>
@@ -357,12 +339,6 @@ export default function AdminReportsPage() {
                 ))}
               </select>
 
-              <select className="input" value={filters.emergency} onChange={(event) => setFilters((current) => ({ ...current, emergency: event.target.value }))}>
-                <option value="semua">Semua jenis</option>
-                <option value="darurat">Darurat</option>
-                <option value="normal">Normal</option>
-              </select>
-
               <input
                 className="input md:col-span-2 xl:col-span-2"
                 placeholder="Cari lokasi, pelapor, atau isi laporan..."
@@ -382,7 +358,6 @@ export default function AdminReportsPage() {
                   category: "",
                   status: "",
                   urgency: "",
-                  emergency: "semua",
                   location: "",
                   search: "",
                   assignedTo: ""
@@ -397,7 +372,7 @@ export default function AdminReportsPage() {
           </div>
         </section>
 
-        <section className="grid gap-4 2xl:grid-cols-[1.15fr_0.85fr]">
+        <section className="grid gap-4">
           <div className="card p-6">
             <div className="flex items-center justify-between gap-4">
               <div>
@@ -434,7 +409,6 @@ export default function AdminReportsPage() {
                           {isSensitiveCategory(report.category) ? (
                             <span className="badge bg-red-100 text-red-700">Sensitif</span>
                           ) : null}
-                          {report.is_emergency ? <span className="badge bg-red-500 text-white">SOS</span> : null}
                         </div>
                       </td>
                       <td className="px-3 py-4 text-ink/70">{report.reporter_name}</td>
@@ -461,49 +435,6 @@ export default function AdminReportsPage() {
             ) : null}
           </div>
 
-          <div className="card border-red-200 p-6">
-            <div>
-              <p className="text-lg font-bold text-red-700">Darurat Perlu Respon</p>
-              <p className="mt-1 text-sm text-ink/55">Daftar laporan darurat aktif dari hasil filter saat ini.</p>
-            </div>
-
-            <div className="mt-6 space-y-4">
-              {activeEmergencies.slice(0, 6).map((report) => (
-                <div key={report.id} className="rounded-3xl border border-red-100 bg-red-50/80 p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="font-bold text-ink">{report.emergency_type || report.category}</p>
-                      <p className="mt-1 text-sm text-ink/65">{report.location}</p>
-                      <p className="mt-1 text-xs text-ink/50">{formatShortTimeAgo(report.created_at)}</p>
-                    </div>
-                    <StatusBadge status={report.status} />
-                  </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <span className={`badge ${getDangerTone(report.danger_level)}`}>{report.danger_level || "sedang"}</span>
-                    {report.needs_immediate_help ? <span className="badge bg-red-100 text-red-700">Butuh bantuan segera</span> : null}
-                  </div>
-                  <div className="mt-4 flex flex-wrap gap-3">
-                    <button
-                      onClick={() => quickRespond(report.id, "diproses")}
-                      className="rounded-2xl bg-red-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-red-600"
-                    >
-                      Respon Sekarang
-                    </button>
-                    <button
-                      onClick={() => quickRespond(report.id, "selesai")}
-                      className="rounded-2xl border border-red-200 bg-white px-4 py-2.5 text-sm font-semibold text-red-700"
-                    >
-                      Tandai Selesai
-                    </button>
-                  </div>
-                </div>
-              ))}
-
-              {!loading && activeEmergencies.length === 0 ? (
-                <div className="rounded-3xl bg-sand p-8 text-center text-sm text-ink/55">Tidak ada laporan darurat aktif saat ini.</div>
-              ) : null}
-            </div>
-          </div>
         </section>
 
         <section className="card p-6">
@@ -519,18 +450,15 @@ export default function AdminReportsPage() {
               return (
                 <div
                   key={report.id}
-                  className={`rounded-3xl border p-5 transition ${
-                    recentlySavedReportId === report.id
-                      ? "border-emerald-300 bg-emerald-50/60 shadow-[0_0_0_1px_rgba(16,185,129,0.18)]"
-                      : report.is_emergency
-                        ? "border-red-200 bg-red-50/60"
+                    className={`rounded-3xl border p-5 transition ${
+                      recentlySavedReportId === report.id
+                        ? "border-emerald-300 bg-emerald-50/60 shadow-[0_0_0_1px_rgba(16,185,129,0.18)]"
                         : "border-ink/8 bg-white"
-                  }`}
+                    }`}
                 >
                   <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
                     <div>
                         <div className="flex flex-wrap items-center gap-2">
-                          {report.is_emergency ? <span className="badge bg-red-500 text-white">SOS</span> : null}
                           <span className={`badge capitalize ${getCategoryTone(report.category)}`}>{report.category}</span>
                           {isSensitiveCategory(report.category) ? (
                             <span className="badge bg-red-100 text-red-700">Sensitif</span>
@@ -700,10 +628,6 @@ export default function AdminReportsPage() {
                           <div className="flex items-center justify-between gap-3 rounded-2xl bg-white px-3 py-2">
                             <span>Prioritas</span>
                             <span className="font-semibold capitalize text-ink">{report.urgency}</span>
-                          </div>
-                          <div className="flex items-center justify-between gap-3 rounded-2xl bg-white px-3 py-2">
-                            <span>Bahaya</span>
-                            <span className="font-semibold capitalize text-ink">{report.danger_level || "-"}</span>
                           </div>
                           <div className="flex items-center justify-between gap-3 rounded-2xl bg-white px-3 py-2">
                             <span>Lokasi detail</span>

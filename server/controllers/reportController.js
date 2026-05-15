@@ -248,13 +248,7 @@ export async function createReport(req, res) {
     const [rows] = await pool.query("SELECT * FROM reports WHERE id = ?", [reportId]);
     res.status(201).json({
       message: "Laporan berhasil dikirim.",
-      report: rows[0],
-      followup: emergency
-        ? {
-            reportId,
-            editToken
-          }
-        : null
+      report: rows[0]
     });
   } catch (error) {
     res.status(500).json({ message: "Gagal membuat laporan.", error: error.message });
@@ -262,41 +256,7 @@ export async function createReport(req, res) {
 }
 
 export async function addEmergencyFollowup(req, res) {
-  try {
-    const { id } = req.params;
-    const { editToken, description, detailLocation } = req.body;
-
-    if (!editToken) {
-      return res.status(400).json({ message: "Token follow-up tidak ditemukan." });
-    }
-
-    const [reports] = await pool.query(
-      "SELECT id, edit_token, description, detail_location, is_emergency FROM reports WHERE id = ?",
-      [id]
-    );
-
-    const report = reports[0];
-    if (!report || report.is_emergency !== 1 || report.edit_token !== editToken) {
-      return res.status(403).json({ message: "Akses follow-up darurat tidak valid." });
-    }
-
-    const nextDescription = description?.trim()
-      ? `${report.description}\n\nTambahan detail:\n${description.trim()}`
-      : report.description;
-    const nextDetailLocation = detailLocation?.trim() || report.detail_location || null;
-    const nextPhoto = req.file ? normalizePhoto(req.file) : null;
-
-    await pool.query(
-      `UPDATE reports
-       SET description = ?, detail_location = ?, photo_url = COALESCE(?, photo_url)
-       WHERE id = ?`,
-      [nextDescription, nextDetailLocation, nextPhoto, id]
-    );
-
-    res.json({ message: "Tambahan laporan darurat berhasil disimpan." });
-  } catch (error) {
-    res.status(500).json({ message: "Gagal menyimpan tambahan laporan darurat.", error: error.message });
-  }
+  res.status(410).json({ message: "Fitur laporan darurat sudah dinonaktifkan." });
 }
 
 export async function getPublicStats(_req, res) {

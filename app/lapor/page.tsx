@@ -3,7 +3,6 @@
 import { apiFetch, getUser } from "@/lib/api";
 import { getPlatformConfig, isSensitiveCategoryForType } from "@/lib/platform-config";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
 
 type LocalUser = {
   organizationId?: number;
@@ -17,24 +16,11 @@ type OrganizationOption = {
   type: string;
 };
 
-type FollowupState = {
-  reportId: number;
-  editToken: string;
-};
-
 export default function ReportFormPage() {
-  const searchParams = useSearchParams();
-  const emergencyMode = searchParams.get("mode") === "darurat";
   const [loading, setLoading] = useState(false);
-  const [followupLoading, setFollowupLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [isAnonymous, setIsAnonymous] = useState(true);
-  const [isEmergency, setIsEmergency] = useState(emergencyMode);
   const [selectedCategory, setSelectedCategory] = useState("");
-  const [followup, setFollowup] = useState<FollowupState | null>(null);
-  const [showFollowupPhoto, setShowFollowupPhoto] = useState(false);
-  const [showFollowupDetail, setShowFollowupDetail] = useState(false);
-  const [followupMessage, setFollowupMessage] = useState("");
   const [organizations, setOrganizations] = useState<OrganizationOption[]>([]);
   const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
   const [selectedOrganizationType, setSelectedOrganizationType] = useState("custom");
@@ -42,25 +28,23 @@ export default function ReportFormPage() {
   useEffect(() => {
     const user = getUser() as LocalUser | null;
     setIsAnonymous(Boolean(user?.defaultAnonymous ?? true));
+
     if (user?.organizationId) {
       setSelectedOrganizationId(String(user.organizationId));
       setSelectedOrganizationType(user.organization?.type || "custom");
-    } else {
-      apiFetch("/organizations")
-        .then((data) => {
-          setOrganizations(data.organizations || []);
-          if (data.organizations?.[0]) {
-            setSelectedOrganizationId(String(data.organizations[0].id));
-            setSelectedOrganizationType(data.organizations[0].type || "custom");
-          }
-        })
-        .catch(() => setOrganizations([]));
+      return;
     }
-  }, []);
 
-  useEffect(() => {
-    setIsEmergency(emergencyMode);
-  }, [emergencyMode]);
+    apiFetch("/organizations")
+      .then((data) => {
+        setOrganizations(data.organizations || []);
+        if (data.organizations?.[0]) {
+          setSelectedOrganizationId(String(data.organizations[0].id));
+          setSelectedOrganizationType(data.organizations[0].type || "custom");
+        }
+      })
+      .catch(() => setOrganizations([]));
+  }, []);
 
   const selectedOrganization = useMemo(
     () => organizations.find((item) => String(item.id) === selectedOrganizationId) || null,
@@ -78,16 +62,6 @@ export default function ReportFormPage() {
     () => isSensitiveCategoryForType(selectedOrganizationType, selectedCategory),
     [selectedCategory, selectedOrganizationType]
   );
-  const emergencyOptions = useMemo(
-    () =>
-      platformConfig.emergencyGroups.flatMap((group) =>
-        group.items.map((item) => ({
-          label: `${group.title} - ${item}`,
-          value: item
-        }))
-      ),
-    [platformConfig]
-  );
 
   useEffect(() => {
     if (isSensitiveCategory) {
@@ -99,13 +73,10 @@ export default function ReportFormPage() {
     event.preventDefault();
     setLoading(true);
     setMessage("");
-    setFollowup(null);
-    setFollowupMessage("");
 
     const form = event.currentTarget;
     const formData = new FormData(form);
     formData.set("isAnonymous", String(isAnonymous));
-    formData.set("isEmergency", String(isEmergency));
     if (!getUser()) {
       formData.set("organizationId", selectedOrganizationId);
     }
@@ -117,13 +88,9 @@ export default function ReportFormPage() {
       });
 
       setMessage(data.message || "Laporan berhasil dikirim.");
-      if (data.followup) {
-        setFollowup(data.followup);
-      }
       form.reset();
       const user = getUser() as LocalUser | null;
       setIsAnonymous(Boolean(user?.defaultAnonymous ?? true));
-      setIsEmergency(emergencyMode);
       setSelectedCategory("");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Gagal mengirim laporan.");
@@ -132,63 +99,23 @@ export default function ReportFormPage() {
     }
   }
 
-  async function handleFollowupSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!followup) return;
-
-    setFollowupLoading(true);
-    setFollowupMessage("");
-
-    const form = event.currentTarget;
-    const formData = new FormData(form);
-    formData.set("editToken", followup.editToken);
-
-    try {
-      const data = await apiFetch(`/reports/${followup.reportId}/followup`, {
-        method: "PATCH",
-        body: formData
-      });
-      setFollowupMessage(data.message || "Tambahan laporan darurat berhasil disimpan.");
-      form.reset();
-      setShowFollowupPhoto(false);
-      setShowFollowupDetail(false);
-    } catch (error) {
-      setFollowupMessage(error instanceof Error ? error.message : "Gagal menyimpan tambahan laporan.");
-    } finally {
-      setFollowupLoading(false);
-    }
-  }
-
   return (
     <main className="container-app py-14">
       <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[0.92fr_1.08fr]">
-        <div className={`card p-8 ${isEmergency ? "border-red-200" : ""}`}>
-          <span className={`badge ${isEmergency ? "bg-red-100 text-red-700" : "bg-brand-100 text-brand-700"}`}>
-            {isEmergency ? platformConfig.emergencyLabel : platformConfig.reportLabel}
-          </span>
-          <h1 className="mt-5 text-4xl font-black tracking-tight text-ink">
-            {isEmergency ? `Laporkan kondisi darurat di ${platformConfig.label}` : `Buat laporan untuk ${platformConfig.label}`}
-          </h1>
+        <div className="card p-8">
+          <span className="badge bg-brand-100 text-brand-700">{platformConfig.reportLabel}</span>
+          <h1 className="mt-5 text-4xl font-black tracking-tight text-ink">Buat laporan untuk {platformConfig.label}</h1>
           <p className="mt-4 text-base leading-7 text-ink/70">
-            {isEmergency
-              ? "Untuk laporan darurat, cukup isi inti kejadian dulu. Foto dan detail tambahan bisa dikirim setelah laporan masuk."
-              : `Form laporan akan menyesuaikan kategori ${platformConfig.label.toLowerCase()} secara otomatis.`}
+            Form laporan akan menyesuaikan kategori {platformConfig.label.toLowerCase()} secara otomatis.
           </p>
 
           <div className="mt-8 space-y-4">
-            {(isEmergency
-              ? [
-                  "Wajib isi jenis darurat dan lokasi kejadian terlebih dahulu",
-                  "Foto cepat dan detail tambahan bisa dikirim setelah laporan masuk",
-                  "Admin workspace akan mendapat notifikasi prioritas"
-                ]
-              : [
-                  `Kategori khusus ${platformConfig.label.toLowerCase()} otomatis dimuat`,
-                  "Lokasi dibuat spesifik agar tindak lanjut lebih cepat",
-                  "Tentukan urgensi agar admin bisa memprioritaskan penanganan",
-                  "Mode anonim tetap tersedia untuk pelapor"
-                ]
-            ).map((item) => (
+            {[
+              `Kategori khusus ${platformConfig.label.toLowerCase()} otomatis dimuat`,
+              "Lokasi dibuat spesifik agar tindak lanjut lebih cepat",
+              "Tentukan urgensi agar admin bisa memprioritaskan penanganan",
+              "Mode anonim tetap tersedia untuk pelapor"
+            ].map((item) => (
               <div key={item} className="rounded-2xl bg-sand px-4 py-3 text-sm text-ink/70">
                 {item}
               </div>
@@ -197,28 +124,7 @@ export default function ReportFormPage() {
         </div>
 
         <div className="space-y-6">
-          <form onSubmit={handleSubmit} className={`card p-8 ${isEmergency ? "border-red-200" : ""}`}>
-            <div className="mb-6 flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={() => setIsEmergency(false)}
-                className={`rounded-2xl px-4 py-3 text-sm font-semibold transition ${
-                  !isEmergency ? "bg-brand-500 text-white" : "border border-ink/10 bg-white text-ink"
-                }`}
-              >
-                Laporan Biasa
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsEmergency(true)}
-                className={`rounded-2xl px-4 py-3 text-sm font-semibold transition ${
-                  isEmergency ? "bg-red-500 text-white" : "border border-ink/10 bg-white text-ink"
-                }`}
-              >
-                {platformConfig.emergencyLabel}
-              </button>
-            </div>
-
+          <form onSubmit={handleSubmit} className="card p-8">
             <div className="grid gap-5 sm:grid-cols-2">
               {!getUser() ? (
                 <label className="sm:col-span-2">
@@ -240,50 +146,34 @@ export default function ReportFormPage() {
                 </label>
               ) : null}
 
-              {isEmergency ? (
-                <label className="sm:col-span-2">
-                  <span className="mb-2 block text-sm font-semibold text-ink">Jenis darurat</span>
-                  <select name="emergencyType" required className="input">
-                    <option value="">Pilih jenis darurat</option>
-                    {emergencyOptions.map((item) => (
-                      <option key={item.value} value={item.value}>
-                        {item.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : (
-                <>
-                  <label className="sm:col-span-2">
-                    <span className="mb-2 block text-sm font-semibold text-ink">Kategori laporan</span>
-                    <select
-                      name="category"
-                      required
-                      className="input"
-                      value={selectedCategory}
-                      onChange={(event) => setSelectedCategory(event.target.value)}
-                    >
-                      <option value="">Pilih kategori</option>
-                      {platformConfig.categories.map((item) => (
-                        <option key={item.name} value={item.name}>
-                          {item.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+              <label className="sm:col-span-2">
+                <span className="mb-2 block text-sm font-semibold text-ink">Kategori laporan</span>
+                <select
+                  name="category"
+                  required
+                  className="input"
+                  value={selectedCategory}
+                  onChange={(event) => setSelectedCategory(event.target.value)}
+                >
+                  <option value="">Pilih kategori</option>
+                  {platformConfig.categories.map((item) => (
+                    <option key={item.name} value={item.name}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-                  {isSensitiveCategory ? (
-                    <div className="sm:col-span-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-4 text-sm leading-6 text-red-700">
-                      Kategori ini diperlakukan sebagai laporan sensitif. Mode anonim diaktifkan otomatis agar identitas pelapor lebih aman.
-                    </div>
-                  ) : null}
+              {isSensitiveCategory ? (
+                <div className="sm:col-span-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-4 text-sm leading-6 text-red-700">
+                  Kategori ini diperlakukan sebagai laporan sensitif. Mode anonim diaktifkan otomatis agar identitas pelapor lebih aman.
+                </div>
+              ) : null}
 
-                  <label className="sm:col-span-2">
-                    <span className="mb-2 block text-sm font-semibold text-ink">Judul laporan</span>
-                    <input name="title" className="input" placeholder={`Contoh: ${platformConfig.menu[0]}`} />
-                  </label>
-                </>
-              )}
+              <label className="sm:col-span-2">
+                <span className="mb-2 block text-sm font-semibold text-ink">Judul laporan</span>
+                <input name="title" className="input" placeholder={`Contoh: ${platformConfig.menu[0]}`} />
+              </label>
 
               <label className="sm:col-span-2">
                 <span className="mb-2 block text-sm font-semibold text-ink">Lokasi kejadian</span>
@@ -295,42 +185,36 @@ export default function ReportFormPage() {
                 />
               </label>
 
-              {!isEmergency ? (
-                <>
-                  <label>
-                    <span className="mb-2 block text-sm font-semibold text-ink">Upload foto</span>
-                    <input
-                      name="photo"
-                      type="file"
-                      accept="image/*"
-                      className="input file:mr-4 file:rounded-xl file:border-0 file:bg-brand-100 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-brand-700"
-                    />
-                  </label>
+              <label>
+                <span className="mb-2 block text-sm font-semibold text-ink">Upload foto</span>
+                <input
+                  name="photo"
+                  type="file"
+                  accept="image/*"
+                  className="input file:mr-4 file:rounded-xl file:border-0 file:bg-brand-100 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-brand-700"
+                />
+              </label>
 
-                  <label>
-                    <span className="mb-2 block text-sm font-semibold text-ink">Tingkat urgensi</span>
-                    <select name="urgency" required className="input">
-                      <option value="">Pilih urgensi</option>
-                      {["rendah", "sedang", "tinggi"].map((item) => (
-                        <option key={item} value={item}>
-                          {item}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </>
-              ) : null}
+              <label>
+                <span className="mb-2 block text-sm font-semibold text-ink">Tingkat urgensi</span>
+                <select name="urgency" required className="input">
+                  <option value="">Pilih urgensi</option>
+                  {["rendah", "sedang", "tinggi"].map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
               <label className="sm:col-span-2">
-                <span className="mb-2 block text-sm font-semibold text-ink">
-                  {isEmergency ? "Deskripsi tambahan (opsional)" : "Deskripsi"}
-                </span>
+                <span className="mb-2 block text-sm font-semibold text-ink">Deskripsi</span>
                 <textarea
                   name="description"
-                  required={!isEmergency}
+                  required
                   rows={6}
                   className="input resize-none"
-                  placeholder={isEmergency ? "Opsional. Tambahkan detail jika situasi memungkinkan." : "Jelaskan masalah secara singkat dan jelas"}
+                  placeholder="Jelaskan masalah secara singkat dan jelas"
                 />
               </label>
 
@@ -351,67 +235,11 @@ export default function ReportFormPage() {
             {message ? <p className="mt-5 text-sm font-medium text-brand-700">{message}</p> : null}
 
             <div className="mt-8 flex flex-wrap gap-3">
-              <button disabled={loading} className={`${isEmergency ? "rounded-2xl bg-red-500 px-5 py-3 text-sm font-semibold text-white" : "btn-primary"} disabled:opacity-60`}>
-                {loading ? "Mengirim..." : isEmergency ? "Kirim Laporan Darurat" : "Kirim Laporan"}
+              <button disabled={loading} className="btn-primary disabled:opacity-60">
+                {loading ? "Mengirim..." : "Kirim Laporan"}
               </button>
             </div>
           </form>
-
-          {followup ? (
-            <div className="card border-red-200 p-8">
-              <span className="badge bg-red-100 text-red-700">Laporan Darurat Terkirim</span>
-              <h2 className="mt-4 text-2xl font-black text-ink">Tambahkan informasi lanjutan bila tersedia</h2>
-              <p className="mt-3 text-sm leading-6 text-ink/70">
-                Inti laporan sudah masuk. Sekarang Anda bisa menambahkan foto, voice note di masa lanjut,
-                atau detail tambahan tanpa mengulang pengiriman dari awal.
-              </p>
-
-              <div className="mt-6 flex flex-wrap gap-3">
-                <button type="button" onClick={() => setShowFollowupPhoto((current) => !current)} className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-                  Tambahkan foto cepat
-                </button>
-                <button type="button" onClick={() => setShowFollowupDetail((current) => !current)} className="rounded-2xl bg-ink/5 px-4 py-3 text-sm font-semibold text-ink">
-                  Tambahkan detail
-                </button>
-              </div>
-
-              {showFollowupPhoto || showFollowupDetail ? (
-                <form onSubmit={handleFollowupSubmit} className="mt-6 space-y-4">
-                  {showFollowupPhoto ? (
-                    <label>
-                      <span className="mb-2 block text-sm font-semibold text-ink">Foto tambahan</span>
-                      <input
-                        name="photo"
-                        type="file"
-                        accept="image/*"
-                        className="input file:mr-4 file:rounded-xl file:border-0 file:bg-brand-100 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-brand-700"
-                      />
-                    </label>
-                  ) : null}
-
-                  {showFollowupDetail ? (
-                    <>
-                      <label>
-                        <span className="mb-2 block text-sm font-semibold text-ink">Detail tambahan</span>
-                        <textarea name="description" rows={4} className="input resize-none" placeholder="Tambahkan detail penting yang belum sempat Anda isi" />
-                      </label>
-
-                      <label>
-                        <span className="mb-2 block text-sm font-semibold text-ink">Lokasi detail</span>
-                        <input name="detailLocation" className="input" placeholder="Contoh: dekat tangga timur, samping ruang 12" />
-                      </label>
-                    </>
-                  ) : null}
-
-                  <button disabled={followupLoading} className="rounded-2xl bg-red-500 px-5 py-3 text-sm font-semibold text-white disabled:opacity-60">
-                    {followupLoading ? "Menyimpan..." : "Simpan Tambahan"}
-                  </button>
-                </form>
-              ) : null}
-
-              {followupMessage ? <p className="mt-4 text-sm font-medium text-brand-700">{followupMessage}</p> : null}
-            </div>
-          ) : null}
         </div>
       </div>
     </main>

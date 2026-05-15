@@ -58,16 +58,16 @@ export default function HomePage() {
                 <li>Kost dan masyarakat: fokus pada operasional lapangan dan respons cepat.</li>
               </ul>
             </div>
-            <div className="mt-6 grid gap-4 sm:grid-cols-2">
-              <div className="rounded-3xl bg-brand-50 p-5">
-                <p className="text-sm text-brand-700">Dynamic UI</p>
-                <p className="mt-2 text-xl font-bold text-ink">Config Driven</p>
+              <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                <div className="rounded-3xl bg-brand-50 p-5 dark:bg-brand-900/40 dark:ring-1 dark:ring-brand-200/10">
+                  <p className="text-sm text-brand-700 dark:text-brand-200">Dynamic UI</p>
+                  <p className="mt-2 text-xl font-bold text-ink dark:text-white">Config Driven</p>
+                </div>
+                <div className="rounded-3xl bg-neutral-900 p-5 text-white dark:bg-neutral-800 dark:ring-1 dark:ring-white/10">
+                  <p className="text-sm text-white/70 dark:text-white/75">Workflow Laporan</p>
+                  <p className="mt-2 text-xl font-bold text-white">Satu Form, Satu Alur</p>
+                </div>
               </div>
-              <div className="rounded-3xl bg-ink p-5 text-white">
-                <p className="text-sm text-white/70">Emergency Ready</p>
-                <p className="mt-2 text-xl font-bold text-white">SOS + Follow Up</p>
-              </div>
-            </div>
           </div>
         </div>
       </section>

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { clearAuth, getUser } from "@/lib/api";
 import { useEffect, useState } from "react";
 import { getPlatformConfig } from "@/lib/platform-config";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 type NavItem = {
   href: string;
@@ -56,8 +57,7 @@ function getNavItems(pathname: string, user?: SessionUser | null): NavItem[] {
     { href: "/", label: "Beranda" },
     { href: "/#tentang", label: "Tentang" },
     { href: "/daftar-instansi", label: "Daftar Instansi" },
-    { href: "/#kategori", label: "Kategori" },
-    { href: "/lapor", label: "Kirim Aduan" }
+    { href: "/#kategori", label: "Kategori" }
   ];
 }
 
@@ -105,6 +105,7 @@ export function Navbar() {
         </nav>
 
         <div className="flex items-center gap-3">
+          <ThemeToggle />
           {user ? (
             <>
               <span className="hidden text-sm text-ink/70 sm:inline">
@@ -128,9 +129,6 @@ export function Navbar() {
               </Link>
               <Link href="/daftar-instansi" className="btn-secondary hidden sm:inline-flex">
                 Daftar Instansi
-              </Link>
-              <Link href="/lapor" className="btn-primary hidden sm:inline-flex">
-                Buat Laporan
               </Link>
             </>
           )}

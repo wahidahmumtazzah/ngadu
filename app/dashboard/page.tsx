@@ -254,16 +254,13 @@ export default function UserDashboardPage() {
               </div>
             </section>
 
-            <section className="card border-red-200 p-6">
-              <h2 className="text-xl font-black text-ink">Emergency Report</h2>
+            <section className="card p-6">
+              <h2 className="text-xl font-black text-ink">Buat Laporan Baru</h2>
               <p className="mt-3 text-sm leading-6 text-ink/70">
-                Gunakan tombol ini untuk kejadian mendesak. Form akan dipersingkat agar pelapor bisa mengirim inti laporan secepat mungkin.
+                Gunakan form laporan utama untuk mengirim aduan baru lengkap dengan kategori, urgensi, dan opsi anonim.
               </p>
-              <Link
-                href="/lapor?mode=darurat"
-                className="mt-5 inline-flex w-full items-center justify-center rounded-2xl bg-red-500 px-5 py-4 text-sm font-semibold text-white transition hover:bg-red-600"
-              >
-                {platformConfig.emergencyLabel}
+              <Link href="/lapor" className="btn-primary mt-5 inline-flex w-full items-center justify-center">
+                {platformConfig.reportLabel}
               </Link>
             </section>
           </div>

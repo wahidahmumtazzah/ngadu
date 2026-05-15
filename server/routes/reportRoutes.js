@@ -1,6 +1,5 @@
 import { Router } from "express";
 import {
-  addEmergencyFollowup,
   createReport,
   createReportReply,
   deleteReport,
@@ -18,7 +17,6 @@ const router = Router();
 
 router.get("/stats/public", getPublicStats);
 router.post("/", authenticate, upload.single("photo"), createReport);
-router.patch("/:id/followup", upload.single("photo"), addEmergencyFollowup);
 router.get("/my", authenticate, requireAuth, requireActiveOrganization, getMyReports);
 router.get("/:id/activity", authenticate, requireAuth, requireActiveOrganization, getReportActivity);
 router.post("/:id/replies", authenticate, requireAuth, requireActiveOrganization, createReportReply);

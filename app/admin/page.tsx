@@ -26,7 +26,6 @@ type AdminSummary = {
 
 type AdminNotifications = {
   laporanBaru: number;
-  laporanDarurat: number;
   belumDirespon: number;
   petugasAktif: number;
 };
@@ -76,7 +75,6 @@ type FilterState = {
   category: string;
   status: string;
   urgency: string;
-  emergency: string;
   location: string;
   search: string;
   assignedTo: string;
@@ -105,12 +103,6 @@ function formatShortTimeAgo(value: string) {
   if (hours < 24) return `${hours} jam lalu`;
   const days = Math.floor(hours / 24);
   return `${days} hari lalu`;
-}
-
-function getDangerTone(level: string | null) {
-  if (level === "kritis") return "bg-red-100 text-red-700";
-  if (level === "tinggi") return "bg-orange-100 text-orange-700";
-  return "bg-amber-100 text-amber-700";
 }
 
 function getCategoryTone(category: string) {
@@ -266,7 +258,6 @@ export default function AdminPage() {
   const [stats, setStats] = useState<AdminSummary>({});
   const [notifications, setNotifications] = useState<AdminNotifications>({
     laporanBaru: 0,
-    laporanDarurat: 0,
     belumDirespon: 0,
     petugasAktif: 0
   });
@@ -274,7 +265,6 @@ export default function AdminPage() {
   const [byLocation, setByLocation] = useState<ChartDatum[]>([]);
   const [byHour, setByHour] = useState<ChartDatum[]>([]);
   const [weeklyTrend, setWeeklyTrend] = useState<ChartDatum[]>([]);
-  const [emergencyFeed, setEmergencyFeed] = useState<AdminReport[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
@@ -285,7 +275,6 @@ export default function AdminPage() {
     category: "",
     status: "",
     urgency: "",
-    emergency: "semua",
     location: "",
     search: "",
     assignedTo: ""
@@ -308,16 +297,6 @@ export default function AdminPage() {
 
   const notificationItems = useMemo(() => {
     const items = [];
-
-    if (emergencyFeed[0]) {
-      items.push({
-        title: `Laporan darurat baru: ${emergencyFeed[0].emergency_type || emergencyFeed[0].category}`,
-        detail: emergencyFeed[0].location,
-        time: formatShortTimeAgo(emergencyFeed[0].created_at),
-        tone: "bg-red-100 text-red-700",
-        icon: "!"
-      });
-    }
 
     if (reports[0]) {
       items.push({
@@ -346,7 +325,7 @@ export default function AdminPage() {
     });
 
     return items;
-  }, [emergencyFeed, reports, notifications]);
+  }, [reports, notifications]);
 
   async function loadStats() {
     const data = await apiFetch("/reports/stats/admin");
@@ -363,7 +342,6 @@ export default function AdminPage() {
     setByLocation(normalizeChart(data.byLocation));
     setByHour(normalizeChart(data.byHour));
     setWeeklyTrend(normalizeChart(data.weeklyTrend));
-    setEmergencyFeed(data.emergencyFeed || []);
   }
 
   async function loadUsers() {
@@ -379,9 +357,6 @@ export default function AdminPage() {
     if (nextFilters.location) params.set("location", nextFilters.location);
     if (nextFilters.search) params.set("search", nextFilters.search);
     if (nextFilters.assignedTo) params.set("assignedTo", nextFilters.assignedTo);
-    if (nextFilters.emergency === "darurat") params.set("emergency", "1");
-    if (nextFilters.emergency === "normal") params.set("emergency", "0");
-
     const query = params.toString();
     const data = await apiFetch(`/reports${query ? `?${query}` : ""}`);
     const nextReports = data.reports || [];
@@ -503,12 +478,7 @@ export default function AdminPage() {
                   ringkasan cepat di atas, analitik di tengah, dan laporan terbaru beserta notifikasi di bawah.
                 </p>
               </div>
-              <div className="grid w-full gap-3 sm:grid-cols-2 lg:w-[420px]">
-                <div className="rounded-3xl border border-white/70 bg-white/80 p-4">
-                  <p className="text-sm font-semibold text-ink/55">Darurat aktif</p>
-                  <p className="mt-2 text-3xl font-black text-red-600">{stats.darurat_aktif || 0}</p>
-                  <p className="mt-1 text-sm text-ink/50">Butuh respon segera</p>
-                </div>
+              <div className="grid w-full gap-3 sm:grid-cols-1 lg:w-[220px]">
                 <div className="rounded-3xl border border-white/70 bg-white/80 p-4">
                   <p className="text-sm font-semibold text-ink/55">User terdaftar</p>
                   <p className="mt-2 text-3xl font-black text-brand-700">{stats.total_user || 0}</p>
@@ -529,7 +499,7 @@ export default function AdminPage() {
           <SummaryCard title="Selesai" value={Number(stats.selesai || 0)} note="Laporan yang sudah beres" accent="bg-teal-100 text-teal-700" icon="S" />
         </section>
 
-        <section className="grid gap-4 2xl:grid-cols-[1.6fr_1.1fr_1fr]">
+        <section className="grid gap-4 2xl:grid-cols-[1.6fr_1.1fr]">
           <TrendChart data={weeklyTrend} />
 
           <div className="card p-6">
@@ -572,56 +542,6 @@ export default function AdminPage() {
             </div>
           </div>
 
-          <div className="card border-red-200 p-6">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-lg font-bold text-red-700">Laporan Darurat Aktif</p>
-                <p className="mt-1 text-sm text-ink/55">Panel respons cepat untuk laporan SOS</p>
-              </div>
-            </div>
-
-            <div className="mt-6 space-y-4">
-              {emergencyFeed.slice(0, 4).map((item) => (
-                <div key={item.id} className="rounded-3xl border border-red-100 bg-red-50/80 p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex min-w-0 gap-3">
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-red-500 text-sm font-black text-white">
-                        SOS
-                      </div>
-                      <div className="min-w-0">
-                        <p className="truncate text-base font-bold text-ink">{item.emergency_type || item.category}</p>
-                        <p className="mt-1 text-sm text-ink/65">{item.location}</p>
-                        <p className="mt-1 text-xs text-ink/50">{formatShortTimeAgo(item.created_at)}</p>
-                      </div>
-                    </div>
-                    <StatusBadge status={item.status} />
-                  </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <span className={`badge ${getDangerTone(item.danger_level)}`}>{item.danger_level || "sedang"}</span>
-                    {item.needs_immediate_help ? <span className="badge bg-red-100 text-red-700">Butuh bantuan segera</span> : null}
-                  </div>
-                  <div className="mt-4 flex flex-wrap gap-3">
-                    <button
-                      onClick={() => quickRespond(item.id, "diproses")}
-                      className="rounded-2xl bg-red-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-red-600"
-                    >
-                      Respon Sekarang
-                    </button>
-                    <button
-                      onClick={() => quickRespond(item.id, "selesai")}
-                      className="rounded-2xl border border-red-200 bg-white px-4 py-2.5 text-sm font-semibold text-red-700"
-                    >
-                      Tandai Selesai
-                    </button>
-                  </div>
-                </div>
-              ))}
-
-              {!loading && emergencyFeed.length === 0 ? (
-                <div className="rounded-3xl bg-sand p-8 text-center text-sm text-ink/55">Tidak ada laporan darurat aktif saat ini.</div>
-              ) : null}
-            </div>
-          </div>
         </section>
 
         <section className="grid gap-4 2xl:grid-cols-[1.8fr_0.9fr]">
@@ -679,7 +599,6 @@ export default function AdminPage() {
                     category: "",
                     status: "",
                     urgency: "",
-                    emergency: "semua",
                     location: "",
                     search: "",
                     assignedTo: ""
@@ -797,15 +716,12 @@ export default function AdminPage() {
                     className={`rounded-3xl border p-5 transition ${
                       recentlySavedReportId === report.id
                         ? "border-emerald-300 bg-emerald-50/60 shadow-[0_0_0_1px_rgba(16,185,129,0.18)]"
-                        : report.is_emergency
-                          ? "border-red-200 bg-red-50/60"
-                          : "border-ink/8 bg-white"
+                        : "border-ink/8 bg-white"
                     }`}
                   >
                     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
-                          {report.is_emergency ? <span className="badge bg-red-500 text-white">SOS</span> : null}
                           <span className={`badge capitalize ${getCategoryTone(report.category)}`}>{report.category}</span>
                           {isSensitiveCategory(report.category) ? <span className="badge bg-red-100 text-red-700">Sensitif</span> : null}
                           <span className="badge bg-brand-50 text-brand-700 capitalize">{report.urgency}</span>
@@ -921,7 +837,7 @@ export default function AdminPage() {
                     <div>
                       <p className="font-semibold text-ink">{user.name}</p>
                       <p className="text-sm text-ink/55">{user.email}</p>
-                      <p className="mt-1 text-xs text-ink/45">Laporan: {user.total_reports} • Darurat: {user.emergency_reports}</p>
+                      <p className="mt-1 text-xs text-ink/45">Laporan: {user.total_reports}</p>
                     </div>
                     <span className="badge bg-brand-50 text-brand-700">{user.role}</span>
                   </div>

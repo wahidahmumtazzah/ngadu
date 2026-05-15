@@ -4,11 +4,21 @@
 
 :root {
   color-scheme: light;
+  --color-ink: 45 45 45;
+  --color-sand: 244 243 241;
+  --color-paper: 251 250 248;
+}
+
+.dark {
+  color-scheme: dark;
+  --color-ink: 232 234 237;
+  --color-sand: 11 17 27;
+  --color-paper: 19 28 40;
 }
 
 body {
   font-family: var(--font-jakarta-sans), sans-serif;
-  @apply bg-sand text-ink antialiased;
+  @apply bg-sand text-ink antialiased transition-colors duration-200;
 }
 
 .container-app {
@@ -24,13 +34,38 @@ body {
 }
 
 .btn-secondary {
-  @apply inline-flex items-center justify-center rounded-2xl border border-ink/10 bg-white px-5 py-3 text-sm font-semibold text-ink transition hover:border-brand-400 hover:text-brand-600;
+  @apply inline-flex items-center justify-center rounded-2xl border border-ink/10 bg-paper px-5 py-3 text-sm font-semibold text-ink transition hover:border-brand-400 hover:text-brand-600;
 }
 
 .input {
-  @apply w-full rounded-2xl border border-ink/10 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-brand-100;
+  @apply w-full rounded-2xl border border-ink/10 bg-paper px-4 py-3 text-sm text-ink outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-brand-100;
 }
 
 .badge {
   @apply inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold;
+}
+
+.dark .bg-white {
+  background-color: rgb(var(--color-paper) / 1) !important;
+}
+
+.dark .bg-white\/80 {
+  background-color: rgb(var(--color-paper) / 0.8) !important;
+}
+
+.dark .bg-white\/70 {
+  background-color: rgb(var(--color-paper) / 0.7) !important;
+}
+
+.dark .border-white\/70 {
+  border-color: rgb(var(--color-ink) / 0.14) !important;
+}
+
+.dark .text-ink\/70,
+.dark .text-ink\/65,
+.dark .text-ink\/60,
+.dark .text-ink\/55,
+.dark .text-ink\/50,
+.dark .text-ink\/45 {
+  color: rgb(var(--color-ink) / 0.7) !important;
 }

@@ -18,7 +18,23 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="id">
+    <html lang="id" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function () {
+                try {
+                  var key = "laporin-theme";
+                  var stored = localStorage.getItem(key);
+                  var dark = stored ? stored === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+                  document.documentElement.classList.toggle("dark", dark);
+                } catch (error) {}
+              })();
+            `
+          }}
+        />
+      </head>
       <body className={jakartaSans.variable}>
         <SessionBootstrap />
         <Navbar />
